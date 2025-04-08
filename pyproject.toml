@@ -1,0 +1,44 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fairtool"
+version = "0.1.0"
+authors = [
+  { name="Ravindra Shinde", email="r.l.shinde@utwente.nl" },
+]
+description = "A CLI tool for FAIR processing of computational materials science data."
+readme = "README.md"
+requires-python = ">=3.8"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License", # Choose your license
+    "Operating System :: OS Independent",
+    "Development Status :: 3 - Alpha",
+    "Environment :: Console",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Chemistry",
+    "Topic :: Scientific/Engineering :: Physics",
+]
+dependencies = [
+    "typer[all]>=0.9.0", # CLI framework with rich support
+    # "electronic-parsers>=0.9.0",
+    "pymatgen>=2023.0.0", # For materials data structures and analysis
+    "pandas>=1.5.0",     # For data analysis and export
+    "pyyaml>=6.0",       # For handling YAML configs or outputs
+    "markdown>=3.4.0",   # For generating markdown reports
+    "jinja2>=3.1.0",     # Often useful for templating markdown/reports
+    # Add mkdocs and mkdocs-material if you want this tool to *manage* the site build
+    # "mkdocs>=1.5.0",
+    # "mkdocs-material>=9.0.0",
+]
+
+[project.urls]
+"Homepage" = "https://github.com/neelravi/fairtool"
+"Bug Tracker" = "https://github.com/neelravi/fairtool/issues"
+
+# This makes the `fair` command available after installation
+[project.scripts]
+fair = "fairtool.cli:app"
+
