@@ -23,7 +23,7 @@ classifiers = [
 ]
 dependencies = [
     "typer[all]>=0.9.0", # CLI framework with rich support
-    # "electronic-parsers>=0.9.0",
+    # "nomad-lab>=1.3.14.dev134+g930504b41",
     "pymatgen>=2023.0.0", # For materials data structures and analysis
     "pandas>=1.5.0",     # For data analysis and export
     "pyyaml>=6.0",       # For handling YAML configs or outputs
