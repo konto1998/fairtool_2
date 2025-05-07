@@ -8,7 +8,6 @@ from pathlib import Path
 import logging
 import rich
 from rich.logging import RichHandler
-import textwrap
 # Import subcommand functions
 from . import parse as parse_module
 # from . import analyze as analyze_module
@@ -33,7 +32,7 @@ app = typer.Typer(
     name="fair",
     help="Process, Analyze, Visualize, and Export Computational Materials Data.",
     add_completion=True,
-    no_args_is_help=True,
+    no_args_is_help=False,
 )
 
 # --- Helper Functions ---
@@ -74,7 +73,6 @@ def version_callback(value: bool):
         raise typer.Exit()
 
 # --- Typer Command Definitions ---
-@app.command("about")
 def about():
     """
     Display information about the FAIR Tool and its creators.
@@ -98,6 +96,7 @@ def about():
     console.print("It is designed to work with various calculation output files and provides a streamlined workflow.", style="cyan")
     console.print("The tool is built on top of electronic-parsers and other libraries to facilitate data handling.", style="cyan")
     console.print("")
+    console.print("Version: " + str(__version__), style="orange1")
     console.print("")
     console.print("Author: Dr. Ravindra Shinde", style="orange1")
     console.print("Email : r.l.shinde@utwente.nl", style="orange1")
@@ -324,6 +323,7 @@ def main_callback(
     """
     FAIR Tool main command group.
     """
+    about()
     # This callback runs before any command.
     # We use it mainly for the --version flag.
     pass
@@ -332,5 +332,6 @@ def main_callback(
 if __name__ == "__main__":
     # This allows running the script directly for debugging,
     # although `python -m fairtool` or the installed `fair` command is preferred.
+    about()
     app()
 
