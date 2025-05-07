@@ -7,6 +7,7 @@ from typing_extensions import Annotated
 from pathlib import Path
 import logging
 import rich
+import sys
 from rich.logging import RichHandler
 # Import subcommand functions
 from . import parse as parse_module
@@ -27,12 +28,48 @@ logging.basicConfig(
 )
 log = logging.getLogger("fairtool")
 
+
+
+# --- Typer Command Definitions ---
+def about():
+    """
+    Display information about the FAIR Tool and its creators.
+    """
+    console.print("")
+    console.print("")
+    console.rule()
+    console.print("FAIR Tool - Computational Materials Data Processing made FAIR", style="bold magenta")
+    console.print(r"""
+  █████▒ ▄▄▄       ██▓ ██▀███  ▄▄▄█████▓ ▒█████   ▒█████   ██▓
+▓██   ▒ ▒████▄    ▓██▒▓██ ▒ ██▒▓  ██▒ ▓▒▒██▒  ██▒▒██▒  ██▒▓██▒
+▒████ ░ ▒██  ▀█▄  ▒██▒▓██ ░▄█ ▒▒ ▓██░ ▒░▒██░  ██▒▒██░  ██▒▒██░
+░▓█▒  ░ ░██▄▄▄▄██ ░██░▒██▀▀█▄  ░ ▓██▓ ░ ▒██   ██░▒██   ██░▒██░
+░▒█░     ▓█   ▓██▒░██░░██▓ ▒██▒  ▒██▒ ░ ░ ████▓▒░░ ████▓▒░░██████▒
+ ▒ ░     ▒▒   ▓▒█░░▓  ░ ▒▓ ░▒▓░  ▒ ░░   ░ ▒░▒░▒░ ░ ▒░▒░▒░ ░ ▒░▓  ░
+ ░        ▒   ▒▒ ░ ▒ ░  ░▒ ░ ▒░    ░      ░ ▒ ▒░   ░ ▒ ▒░ ░ ░ ▒  ░
+ ░ ░      ░   ▒    ▒ ░  ░░   ░   ░      ░ ░ ░ ▒  ░ ░ ░ ▒    ░ ░
+              ░  ░ ░     ░                  ░ ░      ░ ░      ░  ░
+    """, style="dark_orange")
+    console.print("FAIR Tool is a command-line interface for processing, analyzing, and visualizing computational materials data.", style="cyan")
+    console.print("It is designed to work with various calculation output files and provides a streamlined workflow.", style="cyan")
+    console.print("The tool is built on top of electronic-parsers and other libraries to facilitate data handling.", style="cyan")
+    console.print("")
+    console.print("Version: " + str(__version__), style="orange1")
+    console.print("")
+    console.print("Author: Dr. Ravindra Shinde", style="orange1")
+    console.print("Email : r.l.shinde@utwente.nl", style="orange1")
+    console.rule()
+    console.print("")
+    console.print("")
+
+
 # Create the Typer application
 app = typer.Typer(
     name="fair",
     help="Process, Analyze, Visualize, and Export Computational Materials Data.",
     add_completion=True,
-    no_args_is_help=False,
+    no_args_is_help=True,
+    callback=about(),
 )
 
 # --- Helper Functions ---
@@ -72,37 +109,6 @@ def version_callback(value: bool):
         rich.print(f"FAIR Tool Version: {__version__}")
         raise typer.Exit()
 
-# --- Typer Command Definitions ---
-def about():
-    """
-    Display information about the FAIR Tool and its creators.
-    """
-    console.print("")
-    console.print("")
-    console.rule()
-    console.print("FAIR Tool - Computational Materials Data Processing made FAIR", style="bold magenta")
-    console.print(r"""
-  █████▒ ▄▄▄       ██▓ ██▀███  ▄▄▄█████▓ ▒█████   ▒█████   ██▓
-▓██   ▒ ▒████▄    ▓██▒▓██ ▒ ██▒▓  ██▒ ▓▒▒██▒  ██▒▒██▒  ██▒▓██▒
-▒████ ░ ▒██  ▀█▄  ▒██▒▓██ ░▄█ ▒▒ ▓██░ ▒░▒██░  ██▒▒██░  ██▒▒██░
-░▓█▒  ░ ░██▄▄▄▄██ ░██░▒██▀▀█▄  ░ ▓██▓ ░ ▒██   ██░▒██   ██░▒██░
-░▒█░     ▓█   ▓██▒░██░░██▓ ▒██▒  ▒██▒ ░ ░ ████▓▒░░ ████▓▒░░██████▒
- ▒ ░     ▒▒   ▓▒█░░▓  ░ ▒▓ ░▒▓░  ▒ ░░   ░ ▒░▒░▒░ ░ ▒░▒░▒░ ░ ▒░▓  ░
- ░        ▒   ▒▒ ░ ▒ ░  ░▒ ░ ▒░    ░      ░ ▒ ▒░   ░ ▒ ▒░ ░ ░ ▒  ░
- ░ ░      ░   ▒    ▒ ░  ░░   ░   ░      ░ ░ ░ ▒  ░ ░ ░ ▒    ░ ░
-              ░  ░ ░     ░                  ░ ░      ░ ░      ░  ░
-    """, style="dark_orange")
-    console.print("FAIR Tool is a command-line interface for processing, analyzing, and visualizing computational materials data.", style="cyan")
-    console.print("It is designed to work with various calculation output files and provides a streamlined workflow.", style="cyan")
-    console.print("The tool is built on top of electronic-parsers and other libraries to facilitate data handling.", style="cyan")
-    console.print("")
-    console.print("Version: " + str(__version__), style="orange1")
-    console.print("")
-    console.print("Author: Dr. Ravindra Shinde", style="orange1")
-    console.print("Email : r.l.shinde@utwente.nl", style="orange1")
-    console.rule()
-    console.print("")
-    console.print("")
 
 
 @app.command()
@@ -258,6 +264,7 @@ def visualize(
     Generate data for visualizations (structures, BZ, DOS, bands).
     Optionally creates Markdown snippets for mkdocs embedding.
     """
+
     log.info(f"Starting visualization data generation for: {input_path}")
     output_dir.mkdir(parents=True, exist_ok=True)
     log.info(f"Visualization data will be saved to: {output_dir}")
@@ -323,7 +330,6 @@ def main_callback(
     """
     FAIR Tool main command group.
     """
-    about()
     # This callback runs before any command.
     # We use it mainly for the --version flag.
     pass
@@ -332,6 +338,5 @@ def main_callback(
 if __name__ == "__main__":
     # This allows running the script directly for debugging,
     # although `python -m fairtool` or the installed `fair` command is preferred.
-    about()
     app()
 
