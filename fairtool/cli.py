@@ -8,14 +8,16 @@ from pathlib import Path
 import logging
 import rich
 from rich.logging import RichHandler
-
+import textwrap
 # Import subcommand functions
 from . import parse as parse_module
-from . import analyze as analyze_module
-from . import summarize as summarize_module
-from . import visualize as visualize_module
-from . import export as export_module
+# from . import analyze as analyze_module
+# from . import summarize as summarize_module
+# from . import visualize as visualize_module
+# from . import export as export_module
 from . import __version__
+
+console = rich.console.Console()
 
 # Configure logging
 logging.basicConfig(
@@ -30,7 +32,7 @@ log = logging.getLogger("fairtool")
 app = typer.Typer(
     name="fair",
     help="Process, Analyze, Visualize, and Export Computational Materials Data.",
-    add_completion=False, # Disable shell completion for simplicity here
+    add_completion=True,
     no_args_is_help=True,
 )
 
@@ -72,6 +74,37 @@ def version_callback(value: bool):
         raise typer.Exit()
 
 # --- Typer Command Definitions ---
+@app.command("about")
+def about():
+    """
+    Display information about the FAIR Tool and its creators.
+    """
+    console.print("")
+    console.print("")
+    console.rule()
+    console.print("FAIR Tool - Computational Materials Data Processing made FAIR", style="bold magenta")
+    console.print(r"""
+  █████▒ ▄▄▄       ██▓ ██▀███  ▄▄▄█████▓ ▒█████   ▒█████   ██▓
+▓██   ▒ ▒████▄    ▓██▒▓██ ▒ ██▒▓  ██▒ ▓▒▒██▒  ██▒▒██▒  ██▒▓██▒
+▒████ ░ ▒██  ▀█▄  ▒██▒▓██ ░▄█ ▒▒ ▓██░ ▒░▒██░  ██▒▒██░  ██▒▒██░
+░▓█▒  ░ ░██▄▄▄▄██ ░██░▒██▀▀█▄  ░ ▓██▓ ░ ▒██   ██░▒██   ██░▒██░
+░▒█░     ▓█   ▓██▒░██░░██▓ ▒██▒  ▒██▒ ░ ░ ████▓▒░░ ████▓▒░░██████▒
+ ▒ ░     ▒▒   ▓▒█░░▓  ░ ▒▓ ░▒▓░  ▒ ░░   ░ ▒░▒░▒░ ░ ▒░▒░▒░ ░ ▒░▓  ░
+ ░        ▒   ▒▒ ░ ▒ ░  ░▒ ░ ▒░    ░      ░ ▒ ▒░   ░ ▒ ▒░ ░ ░ ▒  ░
+ ░ ░      ░   ▒    ▒ ░  ░░   ░   ░      ░ ░ ░ ▒  ░ ░ ░ ▒    ░ ░
+              ░  ░ ░     ░                  ░ ░      ░ ░      ░  ░
+    """, style="dark_orange")
+    console.print("FAIR Tool is a command-line interface for processing, analyzing, and visualizing computational materials data.", style="cyan")
+    console.print("It is designed to work with various calculation output files and provides a streamlined workflow.", style="cyan")
+    console.print("The tool is built on top of electronic-parsers and other libraries to facilitate data handling.", style="cyan")
+    console.print("")
+    console.print("")
+    console.print("Author: Dr. Ravindra Shinde", style="orange1")
+    console.print("Email : r.l.shinde@utwente.nl", style="orange1")
+    console.rule()
+    console.print("")
+    console.print("")
+
 
 @app.command()
 def parse(
