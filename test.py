@@ -1,6 +1,9 @@
 import sys
 import json
 import logging
+from datetime import datetime, timezone
+import click
+import os
 from nomad.client import parse
 from nomad.utils import configure_logging
 from nomad.datamodel import EntryArchive
@@ -13,47 +16,40 @@ VASPParser().parse(sys.argv[1], archive, logging)
 archive_dict = archive.m_to_dict()
 
 
-def dict_to_markdown(d, level=1, path=""):
-    """Recursively walk through the dict and output a markdown breakdown."""
-    md = ""
-    indent = "  " * (level - 1)
+program = archive_dict['run'][0]['program']
 
-    if isinstance(d, dict):
-        for key, value in d.items():
-            full_path = f"{path}.{key}" if path else key
-            if isinstance(value, dict):
-                md += f"{indent}- **{key}** (dict)\n"
-                md += dict_to_markdown(value, level + 1, full_path)
-            elif isinstance(value, list):
-                md += f"{indent}- **{key}** (list[{len(value)}])\n"
-                # Optionally explore the first item if it's a dict
-                if value and isinstance(value[0], dict):
-                    md += dict_to_markdown(value[0], level + 1, f"{full_path}[0]")
-            else:
-                # Show sample value if it's simple
-                sample = str(value)
-                if len(sample) > 60:
-                    sample = sample[:57] + "..."
-                md += f"{indent}- **{key}**: `{sample}`\n"
-    elif isinstance(d, list):
-        md += f"{indent}- list[{len(d)}]\n"
-        if d and isinstance(d[0], dict):
-            md += dict_to_markdown(d[0], level + 1, path + "[0]")
-    else:
-        sample = str(d)
-        if len(sample) > 60:
-            sample = sample[:57] + "..."
-        md += f"{indent}- `{sample}`\n"
+# Extract values with defaults
+name = program.get("name", "Unknown Program")
+version = program.get("version", "Unknown Version")
+timestamp = program.get("compilation_datetime", None)
 
-    return md
+if isinstance(timestamp, (int, float)):
+    compiled_dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
+    compiled_str = compiled_dt.strftime("%B %d, %Y at %H:%M UTC")
+    timestamp_str = f"{compiled_str} (timestamp `{timestamp}`)"
+else:
+    timestamp_str = "an unknown time"
 
+# Create narrative Markdown
+markdown = f"""## Program Information
 
-# Generate Markdown content
-markdown_output = "# NOMAD Archive Structure\n\n"
-markdown_output += dict_to_markdown(archive_dict)
+The calculation was performed using **{name}**, version
+`{version}`, a widely used plane-wave DFT code.
+
+The program was compiled on **{timestamp_str}**. This metadata helps trace the exact binary and compilation setup used in the simulation, supporting reproducibility.
+"""
 
 # Save to file
-with open("archive_structure.md", "w") as f:
-    f.write(markdown_output)
+with open("run_program_section.md", "w") as f:
+    f.write(markdown)
 
-print("Saved structured archive breakdown to 'archive_structure.md'")
+print("Narrative-style program information saved to 'run_program_section.md'")
+
+# Save the archive to a JSON file
+with open("archive.json", "w") as f:
+    json.dump(archive_dict, f, indent=2)
+print("Archive data saved to 'archive.json'")
+# Save the archive to a JSON file with metadata
+with open("archive_with_meta.json", "w") as f:
+    json.dump(archive.m_to_dict(with_meta=True), f, indent=2)
+print("Archive data with metadata saved to 'archive_with_meta.json'")

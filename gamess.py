@@ -7,12 +7,13 @@ import os
 from nomad.client import parse
 from nomad.utils import configure_logging
 from nomad.datamodel import EntryArchive
-from electronicparsers.vasp import VASPParser
+# from electronicparsers.vasp import VASPParser
+from electronicparsers.gamess import GamessParser
 
 configure_logging(console_log_level=logging.DEBUG)
 
 archive = EntryArchive()
-VASPParser().parse(sys.argv[1], archive, logging)
+GamessParser().parse(sys.argv[1], archive, logging)
 archive_dict = archive.m_to_dict()
 
 
