@@ -24,7 +24,7 @@ logging.basicConfig(
     level="INFO",
     format="%(message)s",
     datefmt="[%X]",
-    handlers=[RichHandler(rich_tracebacks=True, tracebacks_suppress=[typer])]
+    handlers=[RichHandler(show_path=False, rich_tracebacks=True, markup=True, keywords=["error", "failed", "success", "warning"], tracebacks_suppress=[typer])]
 )
 log = logging.getLogger("fairtool")
 
@@ -124,11 +124,11 @@ def parse(
         "--output", "-o",
         help="Directory to save parsed JSON and Markdown files.",
         resolve_path=True,
-    )] = Path("./fair_output/parsed"),
+    )] = Path("./fair"),
     force: Annotated[bool, typer.Option(
         "--force", "-f",
         help="Overwrite existing output files."
-    )] = False,
+    )] = True,
 ):
     """
     Parse calculation output files into structured JSON and Markdown.

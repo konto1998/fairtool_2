@@ -5,9 +5,10 @@
 import json
 import logging
 from pathlib import Path
+import subprocess
 # from electronic_parsers import auto
 
-log = logging.getLogger("fairtool")
+log = logging.getLogger(__name__)
 
 def run_parser(input_file: Path, output_dir: Path, force: bool):
     """
@@ -19,104 +20,96 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
         force: Whether to overwrite existing output files.
     """
     # Define output file paths
-    base_name = input_file.stem # Or create a more robust naming scheme
+    base_name = input_file.stem
     json_output_path = output_dir / f"{base_name}_parsed.json"
     md_output_path = output_dir / f"{base_name}_report.md"
 
-    # Check if output exists and if force is not set
     if not force and (json_output_path.exists() or md_output_path.exists()):
         log.warning(f"Output files for {input_file.name} already exist in {output_dir}. Use --force to overwrite.")
-        return # Skip processing
+        return
 
-    log.info(f"Attempting to parse {input_file.name}...")
+    log.info(f"Attempting to parse {input_file.name} ...")
+
+    # The command to run, broken into a list for subprocess
+    command = [
+        "nomad", "parse",
+        "--skip-normalizers",
+        "--show-archive",
+        "--show-metadata",
+        str(input_file)
+    ]
 
     try:
-        # Use electronic_parsers.auto.parse
-        # This function attempts to automatically detect the code and parse the file.
-        # It typically returns a dictionary (or a list of dictionaries for multi-entry files).
-        # Note: The exact return format and capabilities depend on the electronic-parsers version
-        # and the specific parser used. You might need to adjust based on its API.
-        # parsed_data = auto.parse(str(input_file))
-        parsed_data = str(input_file)
+        # We need to import the subprocess module
 
-        if not parsed_data:
-             log.warning(f"Parser returned no data for {input_file.name}.")
-             return
+        # Run the NOMAD parser command
+        process = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,  # To get stdout/stderr as strings
+            check=True, # To raise CalledProcessError on non-zero exit codes
+            encoding='utf-8'
+        )
+
+        # The JSON output is in stdout
+        raw_json_output = process.stdout
+        if not raw_json_output:
+            log.warning(f"Parser returned no data for {input_file.name}.")
+            return
+
+        # Parse the full JSON output into a Python dictionary
+        # The output might contain multiple JSON objects. We need to parse all of them
+        # and merge them.
+        decoder = json.JSONDecoder()
+        pos = 0
+        full_data = {}
+        raw_json_output = raw_json_output.strip()
+        while pos < len(raw_json_output):
+            obj, pos = decoder.raw_decode(raw_json_output, pos)
+            full_data.update(obj)
+            pos = len(raw_json_output[:pos].strip())
+
+
+        log.debug(f"Parsed data for {input_file.name}: {full_data}")
+
+        # --- Filter for necessary fields ---
+        # As requested, we select only a subset of the fields.
+        # This part should be customized based on what data is truly needed.
+        run = full_data.get("run", {})
+        calculation = run[0].get("calculation", {})
+        properties = full_data.get("metadata", {})
+
+        results = calculation[0].get("scf_iteration", {})
+
+        log.debug(f"Extracted scf results for {input_file.name}: {results}")
+
+        filtered_data = {
+            "domain": full_data.get("metadata", {}).get("domain"),
+            # "mainfile": full_data.get("metadata", {}).get("mainfile"),
+            # "entry_id": full_data.get("metadata", {}).get("entry_id"),
+            # "upload_id": full_data.get("metadata", {}).get("upload_id"),
+            # "material": results.get("material"),
+            # "method": results.get("method"),
+            # "total_energy": properties.get("energy_total"), # Example path
+        }
+        # Remove keys with None values for a cleaner output
+        filtered_data = {k: v for k, v in filtered_data.items() if v is not None}
+
 
         # --- Save as JSON ---
-        log.debug(f"Saving parsed data to {json_output_path}")
+        log.debug(f"Saving filtered parsed data to {json_output_path}")
         try:
             with open(json_output_path, 'w', encoding='utf-8') as f:
-                # Use default=str to handle non-serializable types like numpy arrays if they appear
-                json.dump(parsed_data, f, indent=2, default=str)
+                json.dump(filtered_data, f, indent=2)
             log.info(f"Successfully saved JSON: {json_output_path.name}")
         except Exception as json_err:
             log.error(f"Failed to save JSON for {input_file.name}: {json_err}")
-            # Clean up potentially broken file
             if json_output_path.exists():
                 json_output_path.unlink()
-            raise # Re-raise the exception
+            raise
 
-        # --- Generate and Save Markdown ---
-        log.debug(f"Generating Markdown report for {input_file.name}")
-        try:
-            # TODO: Implement Markdown generation logic.
-            # This could involve iterating through parsed_data and formatting key information.
-            # You might use Jinja2 templates for more complex reports.
-            md_content = generate_markdown_report(parsed_data, input_file.name)
-            with open(md_output_path, 'w', encoding='utf-8') as f:
-                f.write(md_content)
-            log.info(f"Successfully saved Markdown: {md_output_path.name}")
-        except Exception as md_err:
-            log.error(f"Failed to generate or save Markdown for {input_file.name}: {md_err}")
-            # Clean up potentially broken file
-            if md_output_path.exists():
-                md_output_path.unlink()
-            # Decide if failure here should stop JSON saving (if MD is critical)
-
-    except ImportError:
-         log.error("`electronic-parsers` not found. Please install it (`pip install electronic-parsers`)")
-         raise
     except FileNotFoundError:
-        log.error(f"Input file not found during parsing: {input_file}")
+        log.error("`nomad` command not found. Is NOMAD installed and in your system's PATH?")
         raise
-    except Exception as e:
-        log.error(f"An unexpected error occurred while parsing {input_file.name}: {e}")
-        # Clean up any partial files created before the error
-        if json_output_path.exists(): json_output_path.unlink(missing_ok=True)
-        if md_output_path.exists(): md_output_path.unlink(missing_ok=True)
-        raise # Re-raise the exception to be caught by the CLI
-
-
-def generate_markdown_report(data: dict, filename: str) -> str:
-    """
-    Generates a simple Markdown report from parsed data. (Placeholder)
-
-    Args:
-        data: The dictionary returned by the parser.
-        filename: The original name of the parsed file.
-
-    Returns:
-        A string containing the Markdown report.
-    """
-    # --- Placeholder Implementation ---
-    # Customize this extensively based on the actual structure of `data`
-    # from electronic-parsers and the information you want to highlight.
-    report_lines = [
-        f"# Parsing Report for `{filename}`",
-        "",
-        "## Summary",
-        "- **Parser Used**: (Detect or specify based on `data` if available)",
-        "- **Calculation Status**: (Extract completion status if available)",
-        "",
-        "## Key Data Extracted",
-        "(Add details here, e.g., total energy, number of atoms, lattice parameters)",
-        "```json",
-        json.dumps(data, indent=2, default=str), # Dump subset or all data for reference
-        "```",
-        "",
-        "---",
-        "*Generated by FAIR Tool*",
-    ]
-    return "\n".join(report_lines)
-
+    except subprocess.CalledProcessError as e:
+            raise
