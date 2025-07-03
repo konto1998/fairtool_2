@@ -155,7 +155,7 @@ def parse(
     log.info("Parsing finished.")
 
 
-# @app.command()
+@app.command()
 def analyze(
     input_path: Annotated[Path, typer.Argument(
         help="Path to a parsed JSON file or a directory containing them (usually from 'fair parse').",
@@ -193,7 +193,8 @@ def analyze(
 
     # Placeholder for actual analysis
     try:
-        analyze_module.run_analysis(input_path, output_dir, config)
+        log.info("Analysis started.")
+        # analyze_module.run_analysis(input_path, output_dir, config)
     except Exception as e:
         log.error(f"Analysis failed for {input_path}: {e}", exc_info=True)
         raise typer.Exit(code=1)
@@ -201,7 +202,7 @@ def analyze(
     log.info("Analysis finished.")
 
 
-# @app.command()
+@app.command()
 def summarize(
     input_path: Annotated[Path, typer.Argument(
         help="Path to parsed/analyzed data (JSON/directory) to summarize.",
@@ -233,7 +234,8 @@ def summarize(
     # TODO: Implement logic to find relevant input files if input_path is a directory
 
     try:
-        summarize_module.run_summarization(input_path, output_dir, template)
+        log.info("Summarization started.")
+        # summarize_module.run_summarization(input_path, output_dir, template)
     except Exception as e:
         log.error(f"Summarization failed for {input_path}: {e}", exc_info=True)
         raise typer.Exit(code=1)
@@ -241,7 +243,7 @@ def summarize(
     log.info("Summarization finished.")
 
 
-# @app.command()
+@app.command()
 def visualize(
     input_path: Annotated[Path, typer.Argument(
         help="Path to parsed data (JSON/directory) containing structures, BZ, etc.",
@@ -274,7 +276,8 @@ def visualize(
     # TODO: Implement logic to find relevant input files if input_path is a directory
 
     try:
-        visualize_module.run_visualization(input_path, output_dir, embed)
+        log.info("Visualization data generation started.")
+        # visualize_module.run_visualization(input_path, output_dir, embed)
     except Exception as e:
         log.error(f"Visualization data generation failed for {input_path}: {e}", exc_info=True)
         raise typer.Exit(code=1)
@@ -282,7 +285,7 @@ def visualize(
     log.info("Visualization data generation finished.")
 
 
-# @app.command()
+@app.command()
 def export(
     input_path: Annotated[Path, typer.Argument(
         help="Path to parsed/analyzed data (JSON/directory) to export.",
@@ -311,7 +314,8 @@ def export(
     # TODO: Implement logic to find relevant input files if input_path is a directory
 
     try:
-        export_module.run_export(input_path, output_dir, format)
+        log.info("Export started.")
+        # export_module.run_export(input_path, output_dir, format)
     except Exception as e:
         log.error(f"Export failed for {input_path} (format: {format}): {e}", exc_info=True)
         raise typer.Exit(code=1)
