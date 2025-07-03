@@ -155,7 +155,7 @@ def parse(
     log.info("Parsing finished.")
 
 
-@app.command()
+# @app.command()
 def analyze(
     input_path: Annotated[Path, typer.Argument(
         help="Path to a parsed JSON file or a directory containing them (usually from 'fair parse').",
@@ -201,7 +201,7 @@ def analyze(
     log.info("Analysis finished.")
 
 
-@app.command()
+# @app.command()
 def summarize(
     input_path: Annotated[Path, typer.Argument(
         help="Path to parsed/analyzed data (JSON/directory) to summarize.",
@@ -241,7 +241,7 @@ def summarize(
     log.info("Summarization finished.")
 
 
-@app.command()
+# @app.command()
 def visualize(
     input_path: Annotated[Path, typer.Argument(
         help="Path to parsed data (JSON/directory) containing structures, BZ, etc.",
@@ -282,7 +282,7 @@ def visualize(
     log.info("Visualization data generation finished.")
 
 
-@app.command()
+# @app.command()
 def export(
     input_path: Annotated[Path, typer.Argument(
         help="Path to parsed/analyzed data (JSON/directory) to export.",
