@@ -28,12 +28,21 @@ logging.basicConfig(
 )
 log = logging.getLogger("fairtool")
 
+# Create the Typer application
+app = typer.Typer(
+    name="fair",
+    help="Process, Analyze, Visualize, and Export Computational Materials Data.",
+    add_completion=True,
+    no_args_is_help=True,
+    callback=None,
+)
 
 
 # --- Typer Command Definitions ---
+@app.command()
 def about():
     """
-    Display information about the FAIR Tool and its creators.
+    Information about the FAIR Tool and its creators.
     """
     console.print("")
     console.print("")
@@ -58,19 +67,14 @@ def about():
     console.print("")
     console.print("Author: Dr. Ravindra Shinde", style="orange1")
     console.print("Email : r.l.shinde@utwente.nl", style="orange1")
+    console.print("")
+    console.print("")
+    console.print("Funding: " + "4TU Research Data Fund 2024", style="orange1")
+    console.print("")
     console.rule()
     console.print("")
-    console.print("")
 
 
-# Create the Typer application
-app = typer.Typer(
-    name="fair",
-    help="Process, Analyze, Visualize, and Export Computational Materials Data.",
-    add_completion=True,
-    no_args_is_help=True,
-    callback=about(),
-)
 
 # --- Helper Functions ---
 
