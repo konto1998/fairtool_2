@@ -6,6 +6,8 @@ import json
 import logging
 from pathlib import Path
 
+log = logging.getLogger(__name__)
+
 # Essential: pymatgen for structure/band/DOS objects
 try:
     from pymatgen.core import Structure
@@ -14,7 +16,7 @@ try:
     # from pymatgen.electronic_structure.bandstructure import BandStructureSymmLine
     # from pymatgen.electronic_structure.dos import CompleteDos
 except ImportError:
-    log.warning("Pymatgen not found. Visualization capabilities will be limited. Install with `pip install pymatgen`")
+    # log.warning("Pymatgen not found. Visualization capabilities will be limited. Install with `pip install pymatgen`")
     Structure = None # Define as None to allow checks later
     AseAtomsAdaptor = None
 
