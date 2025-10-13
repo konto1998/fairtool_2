@@ -1,4 +1,7 @@
 #--extra-index-url https://gitlab.mpcdf.mpg.de/api/v4/projects/2187/packages/pypi/simple
+lxml==5.1.1
+numpy>=1.22
+msgpack==0.6.2
 nomad-lab>=1.2.1
 typer[all]>=0.9.0
 mkdocs-material

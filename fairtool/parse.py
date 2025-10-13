@@ -35,7 +35,6 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
     # The command to run, broken into a list for subprocess
     command = [
         "nomad", "parse",
-        "--skip-normalizers",
         "--show-archive",
         "--show-metadata",
         str(input_file)
