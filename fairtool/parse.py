@@ -4,6 +4,7 @@
 
 import json
 import logging
+import pint
 from pathlib import Path
 import subprocess
 # from electronic_parsers import auto
@@ -11,6 +12,7 @@ ELEMENTARY_CHARGE_VALUE = 1.602176634e-19  # Elementary charge in Coulombs, used
 
 
 log = logging.getLogger(__name__)
+u = pint.UnitRegistry()
 
 def run_parser(input_file: Path, output_dir: Path, force: bool):
     """
@@ -77,8 +79,141 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
         # As requested, we select only a subset of the fields.
         # This part should be customized based on what data is truly needed.
         run_data = full_data.get("run", {})
+        results_data = full_data.get("results",{})
+        metadata_data = full_data.get("metadata",{})
         # calculation = run[0].get("calculation", {})
         # properties = full_data.get("metadata", {})
+
+        # METHOD NAME
+        method_data = results_data.get("method",{})
+        method_name = method_data.get("method_name")
+
+        # WORKFLOW NAME
+        workflow_name = method_data.get("workflow_name")
+
+        # PROGRAM VERSION
+        simulation_data = method_data.get("simulation")
+        program_version = simulation_data.get("program_version")
+
+        # PROGRAM NAME
+        program_name = simulation_data.get("program_name")
+        
+        # BASIS SET TYPE
+        sim_first_nested_data = next(
+            (v for v in simulation_data.values() if isinstance(v, dict)),
+            None
+        )
+        basis_set_type = sim_first_nested_data.get("basis_set_type")
+
+        # CORE ELECTRON TREATMENT
+        core_electron_treatment = sim_first_nested_data.get("core_electron_treatment")
+
+        # JACOBS LADDER
+        jacobs_ladder = sim_first_nested_data.get("jacobs_ladder")
+
+        # XC FUNCTIONAL NAMES
+        xc_functional_names = sim_first_nested_data.get("xc_functional_names",[])
+        # JACOBS LADDER
+        jacobs_ladder_2 = sim_first_nested_data.get("jacobs_ladder")
+        # CODE-SPECIFIC TIER
+        precision_data = simulation_data.get("precision")
+        code_specific_tier=precision_data.get("native_tier")
+        # BASIS SET
+        basis_set=precision_data.get("basis_set")
+
+        # ENTRY TYPE
+        entry_type = metadata_data.get("entry_type")
+        # ENTRY NAME
+        entry_name = metadata_data.get("entry_name")
+
+        # MATERIAL
+
+        material_data = results_data.get("material",{})
+        topology_data = material_data.get("topology",[])
+
+        # Separate objects by label
+        t_original_data = None
+        t_cell_data = None  # This will hold either primitive or conventional
+
+        for obj in topology_data:
+            if not isinstance(obj, dict):
+                continue
+
+            label = (obj.get("label") or "").strip().lower()
+
+            if label == "original":
+                t_original_data = obj
+
+            elif label in ("primitive cell", "conventional cell"):
+                t_cell_data = obj  # whichever exists, only one expected
+
+        #log.info(f"T_CELL_DATA :   {t_cell_data}")
+        #log.info(f"T_ORIGINAL_DATA :   {t_original_data}")
+
+        #t_o_elements = len(t_original_data.get("elements",[]))
+        #t_c_elements = t_cell_data.get("elements",[])
+        
+        #log.info(f"t_o_elements :   {t_o_elements}, len:{t_o_elements}")
+        #log.info(f"t_c_elements :   {t_c_elements}, len:{len(t_c_elements)}")
+
+        t_original_data_c = t_original_data.get("cell")
+        t_cell_data_c = t_cell_data.get("cell")
+
+        t_cell_data_sym = t_cell_data.get("symmetry")
+
+
+        ##CONVERSION OF CELL DATA UNITS
+
+        # --- cleans the value from lists or tuples
+        def scalar(x):
+            """Unwrap 1-item list/tuple -> value; otherwise return as-is."""
+            if isinstance(x, (list, tuple)) and len(x) == 1:
+                return x[0]
+            return x
+        # --- converts a numeric value to a pint quantity
+        def as_qty(v, unit):
+            """Attach a unit if v is numeric; return None for missing/sentinel."""
+            v = scalar(v)
+            if v is None or v == "unavailable":
+                return None
+            try:
+                return float(v) * unit
+            except (TypeError, ValueError):
+                return None
+
+        # --- field-specific spec (SI -> display units)
+        FIELD_UNITS = {
+            # lattice lengths
+            "a": (u.m, u.angstrom, "Å", ".3f"),
+            "b": (u.m, u.angstrom, "Å", ".3f"),
+            "c": (u.m, u.angstrom, "Å", ".3f"),
+            # angles
+            "alpha": (u.radian, u.degree, "°", ".0f"),
+            "beta":  (u.radian, u.degree, "°", ".0f"),
+            "gamma": (u.radian, u.degree, "°", ".0f"),
+            # bulk properties
+            "volume":          (u.m**3, u.angstrom**3, "Å^3", ".3f"),
+            "atomic_density":  (1/u.m**3, 1/u.angstrom**3, "Å^-3", ".3f"),
+            "mass_density":    (u.kg/u.m**3, u.kg/u.angstrom**3, "kg/Å^3", ".3e"),
+        }
+
+        def convert_field(value, field, default=None, return_numeric=False):
+            """
+            Convert a raw value for a known field to its display unit and format.
+            Returns a formatted string like '7.311 Å' by default,
+            or the numeric value if return_numeric=True.
+            """
+            spec = FIELD_UNITS.get(field)
+            if not spec:
+                raise KeyError(f"Unknown field '{field}'. Known: {sorted(FIELD_UNITS)}")
+            from_u, to_u, symbol, fmt = spec
+            q = as_qty(value, from_u)
+            if q is None:
+                return default
+            num = q.to(to_u).magnitude
+            return num if return_numeric else f"{format(num, fmt)} {symbol}"
+
+     
         scf_iterations_data = []
         total_energies = []
 
@@ -115,10 +250,91 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
                     total_energies.append(float('nan')) # Append NaN for invalid division
 
         filtered_data = {
+            "metadata": {
+                "method_name": method_name,
+                "workflow_name": workflow_name,
+                "program_version": program_version,
+                "program_name": program_name,
+                "basis_set_type": basis_set_type,
+                "core_electron_treatment": core_electron_treatment,
+                "jacobs_ladder": jacobs_ladder,
+                "xc_functional_names": (f"{xc_functional_names[0]},{xc_functional_names[1]}"),
+                "jacobs_ladder": jacobs_ladder_2,
+                "code_specific_tier": code_specific_tier,
+                "basis_set": basis_set,
+                "entry_type": entry_type,
+                "entry_name": entry_name
+            },
+            "material": {
+                "original":{
+                    "description": t_original_data.get("description","unavailable"),
+                    "composition":{
+                        "chemical_formula_hill": t_original_data.get("chemical_formula_hill","unavailable"),
+                        "chemical_formula_iupac": t_original_data.get("chemical_formula_iupac","unavailable"),
+                        "structural_type": t_original_data.get("structural_type","unavailable"),
+                        "label": t_original_data.get("label","unavailable"),
+                        "material_id": t_original_data.get("material_id","unavailable"),
+                        "elements": t_original_data.get("elements",[]),
+                        "n_elements": len(t_original_data.get("elements",[])),
+                        "n_atoms": t_original_data.get("n_atoms","unavailable"),
+                    },
+                    "cell": {
+                        "a": convert_field(t_original_data_c.get("a","unavailable"),"a"),
+                        "b": convert_field(t_original_data_c.get("b","unavailable"),"b"),
+                        "c": convert_field(t_original_data_c.get("c","unavailable"),"c"),
+                        "alpha": convert_field(t_original_data_c.get("alpha","unavailable"),"alpha"),
+                        "beta": convert_field(t_original_data_c.get("beta","unavailable"),"beta"),
+                        "gamma": convert_field(t_original_data_c.get("gamma","unavailable"),"gamma"),
+                        "volume": convert_field(t_original_data_c.get("volume","unavailable"),"volume"),
+                        "atomic_density": convert_field(t_original_data_c.get("atomic_density","unavailable"),"atomic_density"),
+                        "mass_density": convert_field(t_original_data_c.get("mass_density","unavailable"),"mass_density")
+                    }
+                },
+                f'{t_cell_data.get("label")}':{
+                   "description": t_cell_data.get("description","unavailable"),
+                    "composition":{
+                        "chemical_formula_hill": t_cell_data.get("chemical_formula_hill","unavailable"),
+                        "chemical_formula_iupac": t_cell_data.get("chemical_formula_iupac","unavailable"),
+                        "structural_type": t_cell_data.get("structural_type","unavailable"),
+                        "label": t_cell_data.get("label","unavailable"),
+                        "material_id": t_cell_data.get("material_id","unavailable"),
+                        "elements": t_cell_data.get("elements",[]),
+                        "n_elements": len(t_cell_data.get("elements",[])),
+                        "n_atoms": t_cell_data.get("n_atoms","unavailable"),
+                    },
+                    "cell": {
+                        "a": convert_field(t_cell_data_c.get("a","unavailable"),"a"),
+                        "b": convert_field(t_cell_data_c.get("b","unavailable"),"b"),
+                        "c": convert_field(t_cell_data_c.get("c","unavailable"),"c"),
+                        "alpha": convert_field(t_cell_data_c.get("alpha","unavailable"),"alpha"),
+                        "beta": convert_field(t_cell_data_c.get("beta","unavailable"),"beta"),
+                        "gamma": convert_field(t_cell_data_c.get("gamma","unavailable"),"gamma"),
+                        "volume": convert_field(t_cell_data_c.get("volume","unavailable"),"volume"),
+                        "atomic_density": convert_field(t_cell_data_c.get("atomic_density","unavailable"),"atomic_density"),
+                        "mass_density": convert_field(t_cell_data_c.get("mass_density","unavailable"),"mass_density")
+
+                    },
+                    "symmetry": {
+                        "crystal_system" : t_cell_data_sym.get("crystal_system","unavailable"),
+                        "hall_number" : t_cell_data_sym.get("hall_number","unavailable"),
+                        "strukturbericht_designation" : t_cell_data_sym.get("strukturbericht_designation","unavailable"),
+                        "space_group_symbol" : t_cell_data_sym.get("space_group_symbol","unavailable"),
+                        "space_group_number" : t_cell_data_sym.get("space_group_number","unavailable"),
+                        "point_group" : t_cell_data_sym.get("point_group","unavailable"),
+                        "hall_number" : t_cell_data_sym.get("hall_number","unavailable"),
+                        "hall_symbol" : t_cell_data_sym.get("hall_symbol","unavailable"),
+                        "prototype_name" : t_cell_data_sym.get("prototype_name","unavailable"),
+                        "prorotype_label_aflow" : t_cell_data_sym.get("prorotype_label_aflow","unavailable")
+                    }
+                }
+            } ,
+            #"method": cleaned_method_data, #method information parameters
             "domain": full_data.get("metadata", {}).get("domain"),
             "scf_total_energies_ev": total_energies_ev, # Add the extracted energies here
             "unit": "eV" # Explicitly state the unit
+
         }
+
 
         # Remove keys with None values for a cleaner output
         filtered_data = {k: v for k, v in filtered_data.items() if v is not None}
@@ -127,7 +343,7 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
         log.info(f"Saving filtered parsed data to {json_output_path}")
         try:
             with open(json_output_path, 'w', encoding='utf-8') as f:
-                json.dump(filtered_data, f, indent=2)
+                json.dump(filtered_data, f, indent=2,ensure_ascii=False)
             log.info(f"Successfully saved JSON: {json_output_path.name}")
         except Exception as json_err:
             log.error(f"Failed to save JSON for {input_file.name}: {json_err}")
