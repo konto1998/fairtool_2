@@ -1,8 +1,0 @@
-Current run started on: 04/13/24 - 16:27:07
-
-Run started with muB1 0.0, muB2 2.83 and Algo: A 
-SLURM ended with: 	COMPLETED
-Run started with muB1 0.0, muB2 -2.83 and Algo: A 
-SLURM ended with: 	COMPLETED
-Optimum found with muB1=0.0, and muB2=2.83        
- total magnetization: 0.5937 and Etot: -29.959846 
