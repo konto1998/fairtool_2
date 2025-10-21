@@ -2,3 +2,4 @@ fairtool.egg-info/
 site/
 __pycache__
 fair/
+fairtool/__pycache__/
