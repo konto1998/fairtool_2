@@ -128,7 +128,7 @@ def parse(
         "--output", "-o",
         help="Directory to save parsed JSON and Markdown files.",
         resolve_path=True,
-    )] = Path("./fair"),
+    )] = Path("./"),
     force: Annotated[bool, typer.Option(
         "--force", "-f",
         help="Overwrite existing output files."
@@ -148,8 +148,30 @@ def parse(
         return # Exit gracefully
 
     for file in files_to_process:
-        log.info(f"Parsing file: {file}")
         try:
+            # Check for existing parsed JSON and decide whether to skip parsing
+            base_name = file.stem
+            json_output_path = output_dir / f"fair_parsed_{base_name}.json"
+
+            if not force and json_output_path.exists():
+                try:
+                    with open(json_output_path, 'r', encoding='utf-8') as jf:
+                        existing = __import__('json').load(jf)
+                    # look in metadata for fair_parse_time
+                    fair_time = None
+                    if isinstance(existing, dict):
+                        md = existing.get('metadata')
+                        if isinstance(md, dict):
+                            fair_time = md.get('fair_parse_time')
+                    file_mtime = file.stat().st_mtime
+                    if fair_time is not None and float(fair_time) >= float(file_mtime):
+                        log.info(f"Skipping parse for {file} — unchanged since last parse (fair_parse_time={fair_time}).")
+                        continue
+                except Exception:
+                    # If anything goes wrong reading existing JSON, fall back to parsing
+                    log.debug(f"Could not read existing parse metadata for {json_output_path}; will re-parse.")
+
+            log.info(f"Parsing file: {file}")
             parse_module.run_parser(file, output_dir, force)
         except Exception as e:
             log.error(f"Failed to parse {file}: {e}", exc_info=True)
@@ -172,7 +194,7 @@ def analyze(
         "--output", "-o",
         help="Directory to save analysis results (e.g., plots, summary tables).",
         resolve_path=True,
-    )] = Path("./fair_output/analyzed"),
+    )] = Path("."),
      config: Annotated[Path, typer.Option(
         "--config", "-c",
         help="Path to an optional analysis configuration file (e.g., YAML).",
@@ -219,7 +241,7 @@ def summarize(
         "--output", "-o",
         help="Directory to save summary files (e.g., Markdown reports).",
         resolve_path=True,
-    )] = Path("./fair_output/summarized"),
+    )] = Path("."),
     template: Annotated[str, typer.Option(
         "--template", "-t",
         help="Optional template for generating the summary report."
@@ -260,7 +282,7 @@ def visualize(
         "--output", "-o",
         help="Directory to save visualization data (e.g., JSON for React components) and potentially Markdown snippets.",
         resolve_path=True,
-    )] = Path("./fair_output/visualized"),
+    )] = Path("."),
     embed: Annotated[bool, typer.Option(
         "--embed", "-e",
         help="Generate Markdown snippets for embedding visualizations in mkdocs.",
@@ -302,7 +324,7 @@ def export(
         "--output", "-o",
         help="Directory to save exported files.",
         resolve_path=True,
-    )] = Path("./fair_output/exported"),
+    )] = Path("."),
     format: Annotated[str, typer.Option(
         "--format", "-fmt",
         help="Export format (e.g., 'csv', 'json_summary', 'yaml').",

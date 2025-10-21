@@ -4,10 +4,9 @@
 name: Application unit tests
 
 on:
-  push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+  # Run the workflow for every push (every commit) and for all pull requests
+  push: {}
+  pull_request: {}
 
 permissions:
   contents: read
@@ -32,4 +31,5 @@ jobs:
       run: pip install -e .
     - name: Test with pytest
       run: |
-        python -m pytest
+        # Run pytest in verbose mode so CI logs show individual test names and results
+        python -m pytest -v

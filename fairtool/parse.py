@@ -7,6 +7,7 @@ import logging
 import pint
 from pathlib import Path
 import subprocess
+import time
 # from electronic_parsers import auto
 ELEMENTARY_CHARGE_VALUE = 1.602176634e-19  # Elementary charge in Coulombs, used for energy conversion if needed
 
@@ -25,12 +26,39 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
     """
     # Define output file paths
     base_name = input_file.stem
-    json_output_path = output_dir / f"{base_name}_parsed.json"
-    md_output_path = output_dir / f"{base_name}_report.md"
+    json_output_path = output_dir / f"fair_parsed_{base_name}.json"
+    md_output_path = output_dir / f"fair_parsed_{base_name}.md"
 
-    if not force and (json_output_path.exists() or md_output_path.exists()):
-        log.warning(f"Output files for {input_file.name} already exist in {output_dir}. Use --force to overwrite.")
-        return
+    # If not forcing, check existing parsed JSON metadata to decide whether to skip
+    if not force:
+        if json_output_path.exists():
+            try:
+                with open(json_output_path, 'r', encoding='utf-8') as jf:
+                    existing = json.load(jf)
+                fair_time = None
+                if isinstance(existing, dict):
+                    md = existing.get('metadata')
+                    if isinstance(md, dict):
+                        fair_time = md.get('fair_parse_time')
+                try:
+                    file_mtime = input_file.stat().st_mtime
+                except Exception:
+                    file_mtime = None
+
+                if fair_time is not None and file_mtime is not None:
+                    try:
+                        if float(fair_time) >= float(file_mtime):
+                            log.info(f"Skipping parse for {input_file.name} — unchanged since last parse (fair_parse_time={fair_time}).")
+                            return
+                    except Exception:
+                        # If conversion/comparison fails, fall back to parsing
+                        log.debug(f"Could not compare fair_parse_time ({fair_time}) with file mtime; will re-parse.")
+            except Exception:
+                # If reading the existing JSON fails, fall back to parsing
+                log.debug(f"Could not read existing parsed JSON {json_output_path}; will re-parse.")
+        elif md_output_path.exists():
+            # If only a markdown output exists but not JSON, proceed with parsing
+            log.debug(f"Found markdown output {md_output_path} but no JSON; will run parser to regenerate JSON.")
 
     log.info(f"Attempting to parse {input_file.name} ...")
 
@@ -258,7 +286,13 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
                 "basis_set_type": basis_set_type,
                 "core_electron_treatment": core_electron_treatment,
                 "jacobs_ladder": jacobs_ladder,
-                "xc_functional_names": (f"{xc_functional_names[0]},{xc_functional_names[1]}"),
+                # Safely format xc functional names: join whatever is available
+                # (could be a list with 0,1, or many entries) or coerce to string.
+                "xc_functional_names": (
+                    ",".join([str(x) for x in xc_functional_names])
+                    if isinstance(xc_functional_names, (list, tuple))
+                    else (str(xc_functional_names) if xc_functional_names is not None else "")
+                ),
                 "jacobs_ladder": jacobs_ladder_2,
                 "code_specific_tier": code_specific_tier,
                 "basis_set": basis_set,
@@ -339,7 +373,20 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
         # Remove keys with None values for a cleaner output
         filtered_data = {k: v for k, v in filtered_data.items() if v is not None}
 
+        # Record the input file's modification time so subsequent CLI calls
+        # can decide whether re-parsing is necessary.
+        try:
+            parse_mtime = input_file.stat().st_mtime
+        except Exception:
+            parse_mtime = time.time()
+
         # --- Save as JSON ---
+        # Attach the parse timestamp (epoch seconds) under metadata so the CLI
+        # can skip parsing when the original file is unchanged.
+        if "metadata" not in filtered_data or not isinstance(filtered_data["metadata"], dict):
+            filtered_data["metadata"] = {}
+        filtered_data["metadata"]["fair_parse_time"] = parse_mtime
+
         log.info(f"Saving filtered parsed data to {json_output_path}")
         try:
             with open(json_output_path, 'w', encoding='utf-8') as f:
