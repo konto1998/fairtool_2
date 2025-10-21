@@ -3,3 +3,4 @@ site/
 __pycache__
 fair/
 fairtool/__pycache__/
+*.pyc
