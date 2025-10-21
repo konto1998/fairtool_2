@@ -11,10 +11,11 @@ authors = [
 ]
 description = "A CLI tool for FAIR processing of computational materials science data."
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.8"
 classifiers = [
     "Programming Language :: Python :: 3",
-    "License :: OSI Approved :: MIT License", # Choose your license
     "Operating System :: OS Independent",
     "Development Status :: 3 - Alpha",
     "Environment :: Console",
@@ -23,21 +24,17 @@ classifiers = [
     "Topic :: Scientific/Engineering :: Physics",
 ]
 dependencies = [
-    "typer[all]>=0.9.0", # CLI framework with rich support
-    "nomad-lab>=1.2.0",
-    # "pymatgen>=2023.0.0", # For materials data structures and analysis
-    # "pandas>=1.5.0",     # For data analysis and export
-    # "pyyaml>=6.0",       # For handling YAML configs or outputs
-    # "markdown>=3.4.0",   # For generating markdown reports
-    # "jinja2>=3.1.0",     # Often useful for templating markdown/reports
-    # Add mkdocs and mkdocs-material if you want this tool to *manage* the site build
-    # "mkdocs>=1.5.0",
-    # "mkdocs-material>=9.0.0",
+    "lxml==5.1.1",	# Lexical XML
+    "numpy>=1.22",	# The Great Python library
+    "msgpack==0.6.2",	# Binary Serialization in python
+    "nomad-lab>=1.2.1", # Backend for parsing output files
+    "typer>=0.20.0",    # CLI framework with rich support
+    "mkdocs-material",  # Running the visualization on the localhost
 ]
 
 
 [tool.setuptools.packages.find]
-where = ["fairtool"]
+where = ["."]
 
 [project.urls]
 "Homepage" = "https://github.com/neelravi/fairtool"
