@@ -1,3 +1,92 @@
 .md-grid {
   max-width: 1800px;
 }
+
+/* Make tables inside Material cards span full width */
+.md-typeset .cards > li table {
+    width: 100%;
+    table-layout: auto;
+    margin: 0; /* remove default table margin */
+    border-collapse: collapse; /* makes table borders cleaner */
+}
+
+/* Style table headers and cells to match card padding */
+.md-typeset .cards > li table th,
+.md-typeset .cards > li table td {
+    padding: 0.5em 0.75em; /* matches typical card padding */
+    border: none; /* optional, remove if you want borders */
+    white-space: normal;
+    word-wrap: break-word;
+}
+
+/* Optional: make header bold like Material styling */
+.md-typeset .cards > li table th {
+    font-weight: 600;
+    text-align: center; /* or left, depending on your preference */
+}
+
+/* Optional: add subtle row separation for readability */
+.md-typeset .cards > li table tr + tr td {
+    border-top: 1px solid var(--md-typeset-border-color, #e0e0e0);
+}
+
+/* Make tables outside cards span full width of content */
+.md-typeset table {
+    width: 100%;
+    table-layout: auto;
+    margin: 0;
+    border-collapse: collapse;
+}
+
+
+
+/* --- Custom Data Grid --- */
+
+/* The grid container for a single row of data */
+.data-grid {
+  display: grid;
+  /* The top border is set on the first grid in a tab */
+  border-left: 1px solid var(--md-default-fg-color--lightest);
+}
+.md-tabs__content .tabbed-content > .tabbed-block:first-of-type .data-grid:first-of-type {
+    border-top: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Define column layouts */
+.data-grid--2-col { grid-template-columns: repeat(2, 1fr); }
+.data-grid--3-col { grid-template-columns: repeat(3, 1fr); }
+.data-grid--4-col { grid-template-columns: repeat(4, 1fr); }
+
+/* Individual cell styling */
+.data-cell {
+  padding: 1em 1.2em;
+  border-bottom: 1px solid var(--md-default-fg-color--lightest);
+  border-right: 1px solid var(--md-default-fg-color--lightest);
+}
+
+/* Remove margin from the paragraph holding the main value */
+.data-cell p {
+  margin: 0;
+  font-size: 1.1em;
+  font-weight: 400;
+}
+
+/* The small gray label above the main value */
+.data-label {
+  display: block;
+  font-size: 0.8em;
+  color: var(--md-default-fg-color--light);
+  margin-bottom: 0.2em;
+}
+
+/* Style for the copy icon */
+.data-cell .md-icon {
+  position: relative;
+  top: 3px;
+  margin-left: 4px;
+  color: var(--md-default-fg-color--light);
+  cursor: pointer;
+}
+.data-cell .md-icon:hover {
+  color: var(--md-default-fg-color);
+}
