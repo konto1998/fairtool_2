@@ -5,6 +5,7 @@
 import json
 import logging
 from pathlib import Path
+from typing import Optional
 import yaml # For config file
 import pandas as pd # Example: for creating summary tables
 
@@ -15,7 +16,7 @@ import pandas as pd # Example: for creating summary tables
 
 log = logging.getLogger("fairtool")
 
-def run_analysis(input_path: Path, output_dir: Path, config_path: Path | None):
+def run_analysis(input_path: Path, output_dir: Path, config_path: Optional[Path]):
     """
     Performs analysis on parsed data (JSON file or directory of JSON files).
 

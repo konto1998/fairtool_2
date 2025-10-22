@@ -5,6 +5,7 @@
 import json
 import logging
 from pathlib import Path
+from typing import Optional
 
 log = logging.getLogger(__name__)
 
@@ -24,7 +25,7 @@ log = logging.getLogger("fairtool")
 
 # --- Data Preparation Functions ---
 
-def get_structure_data(parsed_data: dict) -> dict | None:
+def get_structure_data(parsed_data: dict) -> Optional[dict]:
     """
     Extracts structure data from parsed output and formats it for visualization
     (e.g., in a format compatible with Materials Project React components or pymatgen).
@@ -93,7 +94,7 @@ def get_structure_data(parsed_data: dict) -> dict | None:
         return None
 
 
-def get_band_structure_data(parsed_data: dict) -> dict | None:
+def get_band_structure_data(parsed_data: dict) -> Optional[dict]:
     """ Extracts and formats band structure data. (Placeholder) """
     log.debug("Attempting to extract band structure data...")
     # TODO: Implement logic similar to get_structure_data
@@ -118,7 +119,7 @@ def get_band_structure_data(parsed_data: dict) -> dict | None:
         log.error(f"Error processing band structure data: {e}", exc_info=True)
         return None
 
-def get_dos_data(parsed_data: dict) -> dict | None:
+def get_dos_data(parsed_data: dict) -> Optional[dict]:
     """ Extracts and formats Density of States (DOS) data. (Placeholder) """
     log.debug("Attempting to extract DOS data...")
     # TODO: Implement logic similar to get_structure_data
