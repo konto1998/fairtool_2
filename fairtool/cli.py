@@ -11,10 +11,10 @@ import sys
 from rich.logging import RichHandler
 # Import subcommand functions
 from . import parse as parse_module
-# from . import analyze as analyze_module
+from . import analyze as analyze_module
 from . import summarize as summarize_module
-# from . import visualize as visualize_module
-# from . import export as export_module
+from . import visualize as visualize_module
+from . import export as export_module
 from . import __version__
 
 console = rich.console.Console()
@@ -65,11 +65,13 @@ def about():
     console.print("")
     console.print("Version: " + str(__version__), style="orange1")
     console.print("")
-    console.print("Author: Dr. Ravindra Shinde", style="orange1")
+    console.print("Project Lead: Dr. Ravindra Shinde", style="orange1")
     console.print("Email : r.l.shinde@utwente.nl", style="orange1")
     console.print("")
+    console.print("Contributor: Konstantinos Kontogiannis", style="orange1")
+    console.print("Email : k.kontogiannis@student.utwente.nl", style="orange1")
     console.print("")
-    console.print("Funding: " + "4TU Research Data Fund 2024", style="orange1")
+    console.print("Funding: " + "4TU Research Data Fund 4th Edition", style="orange1")
     console.print("")
     console.rule()
     console.print("")
@@ -284,6 +286,43 @@ def summarize(
 
     log.info("Summarization finished.")
 
+@app.command()
+def export(
+    input_path: Annotated[Path, typer.Argument(
+        help="Path to parsed/analyzed data (JSON/directory) to export.",
+         exists=True,
+        file_okay=True,
+        dir_okay=True,
+        resolve_path=True,
+    )],
+    output_dir: Annotated[Path, typer.Option(
+        "--output", "-o",
+        help="Directory to save exported files.",
+        resolve_path=True,
+    )] = Path("."),
+    format: Annotated[str, typer.Option(
+        "--format", "-fmt",
+        help="Export format (e.g., 'csv', 'json_summary', 'yaml').",
+    )] = "csv",
+):
+    """
+    Export processed data into different file formats.
+    """
+    log.info(f"Starting export process for: {input_path}")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    log.info(f"Exported files will be saved to: {output_dir} in format '{format}'")
+
+    # TODO: Implement logic to find relevant input files if input_path is a directory
+
+    try:
+        log.info("Export started.")
+        # export_module.run_export(input_path, output_dir, format)
+    except Exception as e:
+        log.error(f"Export failed for {input_path} (format: {format}): {e}", exc_info=True)
+        raise typer.Exit(code=1)
+
+    log.info("Export finished.")
+
 
 @app.command()
 def visualize(
@@ -328,41 +367,94 @@ def visualize(
 
 
 @app.command()
-def export(
+def all(
     input_path: Annotated[Path, typer.Argument(
-        help="Path to parsed/analyzed data (JSON/directory) to export.",
-         exists=True,
+        help="Path to a calculation output file or a directory containing them.",
+        exists=True,
         file_okay=True,
         dir_okay=True,
         resolve_path=True,
     )],
     output_dir: Annotated[Path, typer.Option(
         "--output", "-o",
-        help="Directory to save exported files.",
+        help="Directory to save all generated outputs (parsed, analysis, summaries, visualizations, exports).",
         resolve_path=True,
-    )] = Path("."),
-    format: Annotated[str, typer.Option(
+    )] = Path("./"),
+    force: Annotated[bool, typer.Option(
+        "--force", "-f",
+        help="Force re-generation of outputs where applicable (passed to parse).",
+    )] = True,
+    config: Annotated[Path, typer.Option(
+        "--config", "-c",
+        help="Optional analysis configuration file (passed to analyze).",
+        exists=True,
+        file_okay=True,
+        dir_okay=False,
+        resolve_path=True,
+    )] = None,
+    template: Annotated[str, typer.Option(
+        "--template", "-t",
+        help="Optional summary template (passed to summarize).",
+    )] = None,
+    export_format: Annotated[str, typer.Option(
         "--format", "-fmt",
-        help="Export format (e.g., 'csv', 'json_summary', 'yaml').",
+        help="Export format for the export step (e.g., csv, yaml, json_summary).",
     )] = "csv",
+    embed: Annotated[bool, typer.Option(
+        "--embed", "-e",
+        help="Generate Markdown embedding snippets during visualization.",
+    )] = False,
 ):
     """
-    Export processed data into different file formats.
+    Run the full FAIR workflow: parse -> analyze -> summarize -> export -> visualize.
+
+    This command simply invokes the other commands in serial order. Each step will
+    write into the provided `output_dir` (which will be created if missing).
     """
-    log.info(f"Starting export process for: {input_path}")
+    log.info("Starting full FAIR workflow (all steps)")
     output_dir.mkdir(parents=True, exist_ok=True)
-    log.info(f"Exported files will be saved to: {output_dir} in format '{format}'")
 
-    # TODO: Implement logic to find relevant input files if input_path is a directory
-
+    # Step 1: Parse
     try:
-        log.info("Export started.")
-        # export_module.run_export(input_path, output_dir, format)
+        log.info("STEP 1/5: parse")
+        parse_module.run_parser(input_path, output_dir, force)
     except Exception as e:
-        log.error(f"Export failed for {input_path} (format: {format}): {e}", exc_info=True)
+        log.error(f"Parsing step failed: {e}", exc_info=True)
         raise typer.Exit(code=1)
 
-    log.info("Export finished.")
+    # Step 2: Analyze
+    try:
+        log.info("STEP 2/5: analyze")
+        analyze_module.run_analysis(output_dir, output_dir, config)
+    except Exception as e:
+        log.error(f"Analysis step failed: {e}", exc_info=True)
+        raise typer.Exit(code=1)
+
+    # Step 3: Summarize
+    try:
+        log.info("STEP 3/5: summarize")
+        summarize_module.run_summarization(output_dir, output_dir, template)
+    except Exception as e:
+        log.error(f"Summarization step failed: {e}", exc_info=True)
+        raise typer.Exit(code=1)
+
+    # Step 4: Export
+    try:
+        log.info("STEP 4/5: export")
+        export_module.run_export(output_dir, output_dir, export_format)
+    except Exception as e:
+        log.error(f"Export step failed: {e}", exc_info=True)
+        raise typer.Exit(code=1)
+
+    # Step 5: Visualize
+    try:
+        log.info("STEP 5/5: visualize")
+        visualize_module.run_visualization(output_dir, output_dir, embed)
+    except Exception as e:
+        log.error(f"Visualization step failed: {e}", exc_info=True)
+        raise typer.Exit(code=1)
+
+    log.info("Full FAIR workflow completed successfully.")
 
 
 # --- Version Callback ---
