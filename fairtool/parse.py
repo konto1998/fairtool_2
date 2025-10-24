@@ -160,7 +160,12 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
             #log.info(f"Removed 'workflow2' from full_data for {input_file.name}.")
 
 
-        # finished filtering unwanted fields
+        if "metadata" in full_data and isinstance(full_data["metadata"], dict):
+            del full_data["metadata"]["n_quantities"]
+            del full_data["metadata"]["quantities"]
+            del full_data["metadata"]["sections"]
+            del full_data["metadata"]["section_defs"]
+
 
 
         log.info(f"Saving filtered parsed data to {json_output_path}")

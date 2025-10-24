@@ -9,7 +9,7 @@ from typing import Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from datetime import datetime
 import pint
-
+import numpy as np
 u = pint.UnitRegistry()
 
 log = logging.getLogger("fairtool")
@@ -94,6 +94,65 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
         scf_iterations = calculation[0].get("scf_iteration", {})
         #log.info(f"SCF iteration data extracted: {scf_iterations}")
 
+        # Extract k_mesh  points xyz and weights
+        runmethod = run[0].get("method", {})
+        k_mesh = runmethod[0].get("k_mesh", {})
+        k_points = k_mesh.get("points", {})
+        k_weights = k_mesh.get("weights", [])
+
+                
+        log.info(f"k_mesh extracted: {k_mesh}")
+        log.info(f"K-points extracted: {k_points}")
+        log.info(f"K-weights extracted: {len(k_weights)}")
+
+
+        points_raw = np.array(k_points.get("re", []))
+        #log.info(f"Raw k_points array: {points_raw}")
+        log.info(f"Raw k_points shape: {np.array(k_points.get('re', [])).shape}")
+
+        log.info(f"specific k-point: {(points_raw[1][1][1][1])}")
+        #log.info(f"k-point: {(points_raw)}")
+        # Helper function to extract k-point data and format for markdown
+        def extract_kpoints(points_raw, k_weights):
+            """
+            Extracts k-point coordinates and weights from nested arrays.
+            Returns a list of formatted markdown table rows.
+            """
+            table = []
+            n_kx_layers = len(points_raw)
+            log.info(f"k_mesh has {n_kx_layers} kx layers (first dimension).")
+
+            for i, kx_layer in enumerate(points_raw):  # 1st level: kx
+                n_ky_rows = len(kx_layer)
+                log.info(f"  kx layer {i} has {n_ky_rows} ky rows.")
+
+                for j, ky_row in enumerate(kx_layer):  # 2nd level: ky
+                    n_kz_points = len(ky_row)
+                    log.info(f"    ky row {j} in kx layer {i} has {n_kz_points} kz points.")
+
+                    for k, kz_points in enumerate(ky_row):  # 3rd level: kz
+                        n_components = len(kz_points)
+                        # Each k value corresponds to a coordinate or weight
+                        if n_components == 4:
+                            label = {0: "x", 1: "y", 2: "z", 3: "w"}.get(k, f"c{k}")
+                            v1, v2, v3, v4 = kz_points
+                            log.info(f"{label}1: {v1:.3f}, {label}2: {v2:.3f}, {label}3: {v3:.3f}, {label}4: {v4:.3f}")
+                            weight = k_weights[(i * n_ky_rows * n_kz_points + j * n_kz_points + k) % len(k_weights)]
+                            table.append(
+                                f"        | {i:>2} | {j:>2} | {label} | {float(v1):>6.3f} | {float(v2):>6.3f} | {float(v3):>6.3f} | {float(v4):>6.3f} | {weight:>8.6f} |"
+                            )
+                        else:
+                            log.warning(f"      Unexpected structure at ({i},{j},{k}): {kz_points}")
+            return table
+
+        # Extract and format k-point table rows
+        table_rows = extract_kpoints(points_raw, k_weights)
+
+        # Join all rows into one markdown string
+        table_md = "\n".join(table_rows)
+
+        # Wrap the table in a markdown container
+        #table_md = f"```\n{table_md}\n```"
 
         # Extract SCF energy data on 5 different lists which will be used to create markdown scatter plots
         # These lists will hold energy values in eV and converted values if needed with ELEMENTARY_CHARGE_VALUE
@@ -261,7 +320,7 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
 
 <div class="grid cards" markdown>
 
-- ## Material Composition({t_original_data.get("label")})
+- ## Material Composition - {t_original_data.get("label")}
 
     | Property                     | Value                       |
     |------------------------------|-----------------------------|
@@ -294,7 +353,7 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | Mass density     | **{convert_field(original_cell.get("mass_density","unavailable"),"mass_density")}** | kg / Å³ |
     | Atomic density   | **{convert_field(original_cell.get("atomic_density", "unavailable"),"atomic_density")}** | Å⁻³ |
 
-- ## Material Composition({t_cell_data.get("label")})
+- ## Material Composition - {t_cell_data.get("label")}
     
     | Property                     | Value                       |
     |------------------------------|-----------------------------|
@@ -341,6 +400,22 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | Hall symbol                     | **{t_cell_data_sym.get("hall_symbol", "unavailable")}** |
     | Prototype name                  | **{t_cell_data_sym.get("prototype_name", "unavailable")}** |
     | Prototype label aflow           | **{t_cell_data_sym.get("prototype_label_aflow", "unavailable")}** |
+</div>
+<div class="grid cards" markdown>
+- ## K points information
+    |property                       | Value            |
+    |---------------------------------|------------------|
+    | **dimensionality**          | **{k_mesh.get("type", "unavailable")}** |
+    | **sampling method**         | **{k_mesh.get("sampling_method", "unavailable")}** |
+    | **number of points**       | **{k_mesh.get("n_points", "unavailable")}** |
+    | **grid**                   | **{k_mesh.get("grid", "unavailable")}** |
+
+- ## K points and Weights
+
+    !!! info "K-point coordinates and weights"
+        | Dimension | Layer | Component | K1 | K2 | K3 | K4 | Weight |
+        |-----------|--------|-----------|-----|-----|-----|-----|---------|
+{table_md}
 </div>
 """
         
