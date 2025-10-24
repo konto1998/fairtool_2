@@ -90,3 +90,8 @@
 .data-cell .md-icon:hover {
   color: var(--md-default-fg-color);
 }
+
+#viewer canvas {
+  border-radius: 0.5rem;
+  box-shadow: 0 0 10px rgba(0,0,0,0.05);
+}

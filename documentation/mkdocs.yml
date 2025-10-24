@@ -36,6 +36,10 @@ copyright: >
 extra_css:
   - stylesheets/extra.css
 
+extra_javascript:
+  - https://3dmol.org/build/3Dmol-min.js
+  - js/structure.js
+
 # Configuration
 theme:
   name: material
@@ -104,8 +108,10 @@ plugins:
   #     repository: neelravi/data-management
   #     branch: main
   # - social
+  - macros:
+      module_name: macros
   - search:
-      separator: '[\s\u200b\-_,:!=\[\]()"`/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
+      separator: '[\s\u200b\-_,:!=\[\]()"s/]+|\.(?!\d)|&[lg]t;|(?!\b)(?=[A-Z][a-z])'
   - include_dir_to_nav
   # - minify:
   #     minify_html: true
