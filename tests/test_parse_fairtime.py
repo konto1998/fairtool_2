@@ -26,17 +26,54 @@ def test_run_parser_writes_fair_parse_time(tmp_path, monkeypatch):
     output_dir = tmp_path / "out"
     output_dir.mkdir()
 
-    # Prepare a fake nomad JSON output that contains expected fields
+    # This mock represents the *final merged* object after the `while` loop in `run_parser`.
+    # The real `nomad parse` outputs two JSONs. The first has top-level keys
+    # like 'n_quantities'. The second has 'run', 'metadata', etc.
+    # The `update` call merges them.
     fake_nomad_json = json.dumps({
-        "results": {
-            "method": {"simulation": {"program_version": "1.0", "program_name": "prog", "precision": {"native_tier": "tier", "basis_set": "bz", "xc_functional_names": ["xc1", "xc2"]}}, "method_name": "m", "workflow_name": "w"},
-            "material": {"topology": [
-                {"label": "original", "cell": {"a": 1, "b": 1, "c": 1, "alpha": 1, "beta": 1, "gamma": 1, "volume": 1, "atomic_density": 1, "mass_density": 1}, "description": "d", "chemical_formula_hill": "H2O", "elements": ["H","O"], "n_atoms": 3},
-                {"label": "primitive cell", "cell": {"a": 1, "b": 1, "c": 1, "alpha": 1, "beta": 1, "gamma": 1, "volume": 1, "atomic_density": 1, "mass_density": 1}, "description": "d2", "chemical_formula_hill": "H2O", "elements": ["H","O"], "n_atoms": 3, "symmetry": {"crystal_system": "c"}}
-            ]}
+        # --- Keys from the *first* JSON object (metadata) ---
+        "entry_name": "Test Entry",
+        "entry_type": "Test Type",
+        "domain": "dft",
+        "optimade": {"elements": ["Ag", "Cl", "Cs", "Hg"]},
+        "n_quantities": 42,
+        "quantities": ["some_quantity"],
+        "sections": ["some_section"],
+        "section_defs": ["some_def"],
+
+        # --- Keys from the *second* JSON object (archive) ---
+        "run": [
+            {
+                "program": {"name": "VASP", "version": "6.3.0"},
+                "method": [
+                    {"dft": {"xc_functional": {"name": "GGA_C_PBE+GGA_X_PBE"}}}
+                ],
+                "system": [
+                    {"type": "bulk", "chemical_composition_hill": "AgCl6Cs2Hg"}
+                ],
+                "calculation": [
+                    {"energy": {"total": {"value": -4.8e-18}}}
+                ]
+            }
+        ],
+        "metadata": {
+            # This metadata block from the *archive* does NOT contain
+            # n_quantities, quantities, etc. The parser will now
+            # safely .pop() them, preventing the KeyError.
+            "entry_name": "Test Entry", # This gets overwritten by the first JSON
+            "entry_type": "Test Type",
         },
-        "run": [{"calculation": [{"scf_iteration": []}]}],
-        "metadata": {"entry_type": "type", "entry_name": "name"}
+        "results": {
+            "material": {
+                "elements": ["Ag", "Cl", "Cs", "Hg"],
+                "chemical_formula_hill": "AgCl6Cs2Hg"
+            },
+            "method": {
+                "method_name": "DFT",
+                "simulation": {"program_name": "VASP"}
+            },
+            "properties": {}
+        }
     })
 
     fake_proc = make_nomad_process(fake_nomad_json)
@@ -50,6 +87,13 @@ def test_run_parser_writes_fair_parse_time(tmp_path, monkeypatch):
     data = json.loads(json_file.read_text(encoding='utf-8'))
     assert "metadata" in data
     assert "fair_parse_time" in data["metadata"]
+    # We check for a key from the *archive* metadata block
+    assert "entry_type" in data["metadata"]
+    # We check that top-level keys were successfully removed
+    assert "n_quantities" not in data
+    assert "optimade" not in data
+    # We check that keys were safely removed from the archive metadata
+    assert "n_quantities" not in data["metadata"]
 
     # fair_parse_time should be approximately the input file mtime
     mtime = input_file.stat().st_mtime

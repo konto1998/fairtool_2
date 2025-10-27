@@ -128,6 +128,8 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
         else:
             log.info(f"No 'run' array found in full_data for {input_file.name}; nothing to remove.")
 
+        # These top-level keys come from the *first* JSON object (metadata)
+        # The `if` checks make these deletions safe.
         if "entry_name" in full_data:
             del full_data["entry_name"]
             #log.info(f"Removed 'entry_name' from full_data for {input_file.name}.")
@@ -161,15 +163,24 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
 
 
         if "metadata" in full_data and isinstance(full_data["metadata"], dict):
-            del full_data["metadata"]["n_quantities"]
-            del full_data["metadata"]["quantities"]
-            del full_data["metadata"]["sections"]
-            del full_data["metadata"]["section_defs"]
-
+            # --- FIX ---
+            # Use .pop(key, None) to safely remove keys.
+            # This prevents a KeyError if the key doesn't exist in the
+            # metadata dictionary (which it often won't).
+            full_data["metadata"].pop("n_quantities", None)
+            full_data["metadata"].pop("quantities", None)
+            full_data["metadata"].pop("sections", None)
+            full_data["metadata"].pop("section_defs", None)
+            # --- END FIX ---
 
 
         log.info(f"Saving filtered parsed data to {json_output_path}")
         try:
+            # Add fair_parse_time *after* filtering
+            if "metadata" not in full_data or not isinstance(full_data.get('metadata'), dict):
+                full_data["metadata"] = {}
+            full_data["metadata"]["fair_parse_time"] = time.time()
+            
             with open(json_output_path, 'w', encoding='utf-8') as f:
                 json.dump(full_data, f, indent=2,ensure_ascii=False)
             log.info(f"Successfully saved JSON: {json_output_path.name}")
@@ -193,4 +204,3 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
     except Exception as e:
         log.error(f"An unexpected error occurred during parsing of {input_file.name}: {e}", exc_info=True)
         raise
-
