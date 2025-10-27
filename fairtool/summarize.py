@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Optional
 from jinja2 import Environment, FileSystemLoader, select_autoescape
 from datetime import datetime
+import re
 import pint
 import numpy as np
 u = pint.UnitRegistry()
@@ -101,16 +102,16 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
         k_weights = k_mesh.get("weights", [])
 
                 
-        log.info(f"k_mesh extracted: {k_mesh}")
-        log.info(f"K-points extracted: {k_points}")
-        log.info(f"K-weights extracted: {len(k_weights)}")
+        #log.info(f"k_mesh extracted: {k_mesh}")
+        #log.info(f"K-points extracted: {k_points}")
+        #log.info(f"K-weights extracted: {len(k_weights)}")
 
 
         points_raw = np.array(k_points.get("re", []))
         #log.info(f"Raw k_points array: {points_raw}")
-        log.info(f"Raw k_points shape: {np.array(k_points.get('re', [])).shape}")
+        #log.info(f"Raw k_points shape: {np.array(k_points.get('re', [])).shape}")
 
-        log.info(f"specific k-point: {(points_raw[1][1][1][1])}")
+        #log.info(f"specific k-point: {(points_raw[1][1][1][1])}")
         #log.info(f"k-point: {(points_raw)}")
         # Helper function to extract k-point data and format for markdown
         def extract_kpoints(points_raw, k_weights):
@@ -118,38 +119,80 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
             Extracts k-point coordinates and weights from nested arrays.
             Returns a list of formatted markdown table rows.
             """
+            index = 0
             table = []
+            table_x = []
+            table_y = []
+            table_z = []
             n_kx_layers = len(points_raw)
-            log.info(f"k_mesh has {n_kx_layers} kx layers (first dimension).")
+            #log.info(f"k_mesh has {n_kx_layers} kx layers (first dimension).")
 
             for i, kx_layer in enumerate(points_raw):  # 1st level: kx
                 n_ky_rows = len(kx_layer)
-                log.info(f"  kx layer {i} has {n_ky_rows} ky rows.")
+                #log.info(f"  kx layer {i} has {n_ky_rows} ky rows.")
 
                 for j, ky_row in enumerate(kx_layer):  # 2nd level: ky
                     n_kz_points = len(ky_row)
-                    log.info(f"    ky row {j} in kx layer {i} has {n_kz_points} kz points.")
+                    #log.info(f"    ky row {j} in kx layer {i} has {n_kz_points} kz points.")
 
                     for k, kz_points in enumerate(ky_row):  # 3rd level: kz
                         n_components = len(kz_points)
                         # Each k value corresponds to a coordinate or weight
-                        if n_components == 4:
-                            label = {0: "x", 1: "y", 2: "z", 3: "w"}.get(k, f"c{k}")
-                            v1, v2, v3, v4 = kz_points
-                            log.info(f"{label}1: {v1:.3f}, {label}2: {v2:.3f}, {label}3: {v3:.3f}, {label}4: {v4:.3f}")
-                            weight = k_weights[(i * n_ky_rows * n_kz_points + j * n_kz_points + k) % len(k_weights)]
-                            table.append(
-                                f"        | {i:>2} | {j:>2} | {label} | {float(v1):>6.3f} | {float(v2):>6.3f} | {float(v3):>6.3f} | {float(v4):>6.3f} | {weight:>8.6f} |"
-                            )
-                        else:
-                            log.warning(f"      Unexpected structure at ({i},{j},{k}): {kz_points}")
+                        for l in range(n_components):
+                            value = kz_points[l]
+                            # Format value to at most 6 decimals
+                            try:
+                                value_fmt = float(f"{float(value):.6f}")
+                            except (TypeError, ValueError):
+                                value_fmt = value
+                            #log.info(f"      Component {l} of k-point at ({i},{j},{k}): {value_fmt}")
+                            if i == 0:
+                                table_x.append(value_fmt)
+                            elif i == 1:
+                                table_y.append(value_fmt)
+                            elif i == 2:
+                                table_z.append(value_fmt)
+                            index += 1
+            
+            table.append(table_x)
+            table.append(table_y)
+            table.append(table_z)
+            table.append(k_weights)
+
             return table
+
+        def revert_kpoints(points_raw):
+            """
+            Converts a list of 4 lists [kx[], ky[], kz[], w[]]
+            into a list of [kx, ky, kz, w] rows.
+            """
+            if len(points_raw) != 4:
+                raise ValueError("Expected 4 lists: [kx, ky, kz, w]")
+
+            kx, ky, kz, w = points_raw
+
+            n_points = len(kx)
+            if not (len(ky) == len(kz) == len(w) == n_points):
+                raise ValueError("All sublists must have the same length.")
+
+            combined = []
+            for i in range(n_points):
+                combined.append([kx[i], ky[i], kz[i], w[i]])
+
+            return combined
 
         # Extract and format k-point table rows
         table_rows = extract_kpoints(points_raw, k_weights)
+        #log.info(f"Extracted k-point table rows: {table_rows}")
 
-        # Join all rows into one markdown string
-        table_md = "\n".join(table_rows)
+        # Revert the k-point table rows back to the original format
+        table_md = revert_kpoints(table_rows)
+
+        # Convert each row (list of floats) into a formatted markdown string
+        
+        table_md = "\n".join(["    | " + " | ".join(map(str, row)) + " |" for row in table_md])
+
+
 
         # Wrap the table in a markdown container
         #table_md = f"```\n{table_md}\n```"
@@ -283,6 +326,41 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
             return num if return_numeric else f"{format(num, fmt)} {symbol}"
         
 
+        # --- utility: strip parenthetical content
+        def strip_parens(s: object, default: str = "unavailable") -> str:
+            """Return the string with any parenthetical "( ... )" removed.
+
+            If s is None or equals the sentinel, return default.
+            """
+            if s is None:
+                return default
+            s = str(s)
+            if s == "":
+                return default
+            # remove any parenthetical group and surrounding whitespace
+            cleaned = re.sub(r"\s*\(.*?\)", "", s)
+            return cleaned.strip() or default
+
+        # --- utility: format numeric field according to FIELD_UNITS
+        def format_field_numeric(value, field, default: str = "unavailable"):
+            """Return a string formatted according to FIELD_UNITS for the given field.
+
+            If the value is missing or can't be converted, return `default`.
+            """
+            try:
+                num = convert_field(value, field, default=None, return_numeric=True) ## we return numeric only in the function
+            except KeyError:
+                return default
+            if num is None:
+                return default
+            fmt = FIELD_UNITS.get(field, (None, None, None, ".3f"))[3]
+            try:
+                return format(num, fmt)
+            except Exception:
+                return default
+
+
+
 
         
         # Find the conventional/primitive cell data
@@ -291,7 +369,8 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
         #log.info("Successfully extracted data sections.")
 
         # Create markdown content
-        markdown_content = f"""# FAIR Parsed Report
+        markdown_content = f"""
+{f"# {metadata.get('entry_name', 'FAIR Parsed Report')}"}
 
 <div class="grid cards" markdown>
 
@@ -302,7 +381,7 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | **Method name**            | {method.get('method_name', 'unavailable')}                 |
     | **Workflow name**          | {method.get('workflow_name', 'unavailable')}               |
     | **Program name**           | {simulation.get('program_name', 'unavailable')}            |
-    | **Program version**        | {simulation.get('program_version', 'unavailable')}         |
+    | **Program version**        | {strip_parens(simulation.get('program_version', 'unavailable'))}         |
     | **Basis set type**         | {sim_first_nested_data.get('basis_set_type', 'unavailable')}|
     | **Core electron treatment**| {sim_first_nested_data.get('core_electron_treatment', 'unavailable')}|
     | **Jacob's ladder**         | {sim_first_nested_data.get('jacobs_ladder', 'unavailable')}|
@@ -311,7 +390,6 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | **Basis set**              | {sim_second_nested_data.get('basis_set', 'unavailable')}   |
     | **Entry type**             | {metadata.get('entry_type', 'unavailable')}                |
     | **Entry name**             | {metadata.get('entry_name', 'unavailable')}                |
-    | **Comment**                | No comment available                                        |
     | **Authors**                | Ravindra Shinde                                            |
     | **Mainfile**               | {Path(metadata.get('mainfile', 'unavailable')).name}                 |
     | **Last processing time**   | {datetime.fromisoformat(metadata.get('compilation_datetime', 'unavailable')).strftime('%m/%d/%Y, %I:%M:%S %p') if metadata.get('compilation_datetime') else 'unavailable'}     |
@@ -337,21 +415,21 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
 
     | Lattice vectors   | Value     | Units |
     |------------------|-----------|-------|
-    | a                | **{convert_field(original_cell.get("a", "unavailable"),"a")}** | Angstrom |
-    | b                | **{convert_field(original_cell.get("b", "unavailable"),"b")}** | Angstrom |
-    | c                | **{convert_field(original_cell.get("c", "unavailable"),"c")}** | Angstrom |
+    | a                | **{format_field_numeric(original_cell.get("a", "unavailable"), "a")}** | Angstrom |
+    | b                | **{format_field_numeric(original_cell.get("b", "unavailable"), "b")}** | Angstrom |
+    | c                | **{format_field_numeric(original_cell.get("c", "unavailable"), "c")}** | Angstrom |
 
     | Lattice angles    | Value     | Units |
     |------------------|-----------|-------|
-    | Alpha            | **{convert_field(original_cell.get("alpha", "unavailable"),"alpha")}** | Degrees |
-    | Beta             | **{convert_field(original_cell.get("beta", "unavailable"),"beta")}**  | Degrees |
-    | Gamma            | **{convert_field(original_cell.get("gamma", "unavailable"),"gamma")}** | Degrees |
+    | Alpha            | **{format_field_numeric(original_cell.get("alpha", "unavailable"), "alpha")}** | Degrees |
+    | Beta             | **{format_field_numeric(original_cell.get("beta", "unavailable"), "beta")}**  | Degrees |
+    | Gamma            | **{format_field_numeric(original_cell.get("gamma", "unavailable"), "gamma")}** | Degrees |
 
     | Cell quantities   | Value     | Units |
     |------------------|-----------|-------|
-    | Volume           | **{convert_field(original_cell.get("volume", "unavailable"),"volume")}** | Å³ |
-    | Mass density     | **{convert_field(original_cell.get("mass_density","unavailable"),"mass_density")}** | kg / Å³ |
-    | Atomic density   | **{convert_field(original_cell.get("atomic_density", "unavailable"),"atomic_density")}** | Å⁻³ |
+    | Volume           | **{format_field_numeric(original_cell.get("volume", "unavailable"), "volume")}** | Å³ |
+    | Mass density     | **{format_field_numeric(original_cell.get("mass_density","unavailable"), "mass_density")}** | kg / Å³ |
+    | Atomic density   | **{format_field_numeric(original_cell.get("atomic_density", "unavailable"), "atomic_density")}** | Å⁻³ |
 
 - ## Material Composition - {t_cell_data.get("label")}
     
@@ -370,21 +448,21 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
 
     | Lattice vectors   | Value     | Units |
     |------------------|-----------|-------|
-    | a                | **{convert_field(cell_type_data.get("a", "unavailable"),"a")}** | Angstrom |
-    | b                | **{convert_field(cell_type_data.get("b", "unavailable"),"b")}** | Angstrom |
-    | c                | **{convert_field(cell_type_data.get("c", "unavailable"),"c")}** | Angstrom |
+    | a                | **{format_field_numeric(cell_type_data.get("a", "unavailable"), "a")}** | Angstrom |
+    | b                | **{format_field_numeric(cell_type_data.get("b", "unavailable"), "b")}** | Angstrom |
+    | c                | **{format_field_numeric(cell_type_data.get("c", "unavailable"), "c")}** | Angstrom |
 
     | Lattice angles    | Value     | Units |
     |------------------|-----------|-------|
-    | Alpha            | **{convert_field(cell_type_data.get("alpha", "unavailable"),"alpha")}** | Degrees |
-    | Beta             | **{convert_field(cell_type_data.get("beta", "unavailable"),"beta")}**  | Degrees |
-    | Gamma            | **{convert_field(cell_type_data.get("gamma", "unavailable"),"gamma")}** | Degrees |
+    | Alpha            | **{format_field_numeric(cell_type_data.get("alpha", "unavailable"), "alpha")}** | Degrees |
+    | Beta             | **{format_field_numeric(cell_type_data.get("beta", "unavailable"), "beta")}**  | Degrees |
+    | Gamma            | **{format_field_numeric(cell_type_data.get("gamma", "unavailable"), "gamma")}** | Degrees |
 
     | Cell quantities   | Value     | Units |
     |------------------|-----------|-------|
-    | Volume           | **{convert_field(cell_type_data.get("volume", "unavailable"),"volume")}** | Å³ |
-    | Mass density     | **{convert_field(cell_type_data.get("mass_density", "unavailable"),"mass_density")}** | kg / Å³ |
-    | Atomic density   | **{convert_field(cell_type_data.get("atomic_density", "unavailable"),"atomic_density")}** | Å⁻³ |
+    | Volume           | **{format_field_numeric(cell_type_data.get("volume", "unavailable"), "volume")}** | Å³ |
+    | Mass density     | **{format_field_numeric(cell_type_data.get("mass_density", "unavailable"), "mass_density")}** | kg / Å³ |
+    | Atomic density   | **{format_field_numeric(cell_type_data.get("atomic_density", "unavailable"), "atomic_density")}** | Å⁻³ |
 
 - ## Symmetry({t_cell_data.get("label")})
 
@@ -402,27 +480,36 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | Prototype label aflow           | **{t_cell_data_sym.get("prototype_label_aflow", "unavailable")}** |
 </div>
 <div class="grid cards" markdown>
+
 - ## K points information
-    |property                       | Value            |
-    |---------------------------------|------------------|
-    | **dimensionality**          | **{k_mesh.get("type", "unavailable")}** |
-    | **sampling method**         | **{k_mesh.get("sampling_method", "unavailable")}** |
-    | **number of points**       | **{k_mesh.get("n_points", "unavailable")}** |
-    | **grid**                   | **{k_mesh.get("grid", "unavailable")}** |
+
+    | Property               | Value |
+    |------------------------|--------|
+    | Dimensionality         | **{k_mesh.get("type", "unavailable")}** |
+    | Sampling method        | **{k_mesh.get("sampling_method", "unavailable")}** |
+    | Number of points       | **{k_mesh.get("n_points", "unavailable")}** |
+    | Grid                   | **{k_mesh.get("grid", "unavailable")}** |
 
 - ## K points and Weights
 
-    !!! info "K-point coordinates and weights"
-        | Dimension | Layer | Component | K1 | K2 | K3 | K4 | Weight |
-        |-----------|--------|-----------|-----|-----|-----|-----|---------|
+    | kx | ky | kz | Weight |
+    |----|----|----|--------|
 {table_md}
+
 </div>
 """
         
 
 
+        # Determine output file path (Formulation IUPAC if available)
+        """if t_original_data.get("chemical_formula_iupac"):
+            output_path = output_dir / f"{t_original_data.get('chemical_formula_iupac')}_summary.md"
+        else:
+            output_path = output_dir / f"{input_path.stem}_summary.md"
+        """
+
         # Save the markdown report
-        output_path = output_dir / f"{input_path.stem}_summary.md"
+        output_path = output_dir / f"{input_path.stem}_summary.md
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(markdown_content)
         
