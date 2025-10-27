@@ -256,6 +256,22 @@ def summarize(
     log.info(f"Starting summarization process for: {input_path}")
     output_dir.mkdir(parents=True, exist_ok=True)
     log.info(f"Summary output will be saved to: {output_dir}")
+
+
+    # --- Verify file type ---
+    if input_path.suffix.lower() != ".json":
+        log.error(f"Input must be a JSON file, not: {input_path.suffix}")
+        raise typer.Exit(code=1)
+
+    # --- Prepare output path ---
+    base_name = input_path.stem
+    md_output_path = output_dir / f"fair_summarized_{base_name}.md"
+
+    if md_output_path.exists() and not force:
+        log.info(f"Summary already exists at {md_output_path}.")
+        raise typer.Exit(code=0)
+
+    
     if template:
         log.info(f"Using summary template: {template}")
 
@@ -263,7 +279,7 @@ def summarize(
 
     try:
         log.info("Summarization started.")
-        # summarize_module.run_summarization(input_path, output_dir, template)
+        summarize_module.run_summarization(input_path, output_dir, template)
     except Exception as e:
         log.error(f"Summarization failed for {input_path}: {e}", exc_info=True)
         raise typer.Exit(code=1)
