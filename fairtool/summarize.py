@@ -502,14 +502,14 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
 
 
         # Determine output file path (Formulation IUPAC if available)
-        """if t_original_data.get("chemical_formula_iupac"):
-            output_path = output_dir / f"{t_original_data.get('chemical_formula_iupac')}_summary.md"
-        else:
-            output_path = output_dir / f"{input_path.stem}_summary.md"
-        """
+        #if t_original_data.get("chemical_formula_iupac"):
+        #    output_path = output_dir / f"{t_original_data.get('chemical_formula_iupac')}_summary.md"
+        #else:
+        #    output_path = output_dir / f"{input_path.stem}_summary.md"
+        #
 
         # Save the markdown report
-        output_path = output_dir / f"{input_path.stem}_summary.md
+        output_path = output_dir / f"{input_path.stem}_summary.md"
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(markdown_content)
         
