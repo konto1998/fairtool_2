@@ -1,11 +1,3 @@
-# def define_env(env):
-#     @env.macro
-#     def structure_viewer(json_path, height="500px"):
-#         div_id = json_path.replace("/", "_").replace(".", "_")
-#         return f'''
-# <div class="structure-viewer" data-json="{json_path}" style="width: 100%; height: {height};"></div>
-# '''
-
 def define_env(env):
     @env.macro
     def structure_viewer(json_path, height="500px"):

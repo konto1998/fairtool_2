@@ -8,7 +8,7 @@ import pint
 from pathlib import Path
 import subprocess
 import time
-
+import numpy as np
 from typing import Optional  
 from pymatgen.core import Structure, Lattice 
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
@@ -20,34 +20,27 @@ ELEMENTARY_CHARGE_VALUE = 1.602176634e-19  # Elementary charge in Coulombs, used
 log = logging.getLogger(__name__)
 u = pint.UnitRegistry()
 
-from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
-
 def _create_structure_json(full_data: dict, output_dir: Path, base_name: str):
     """
-    Extracts or derives a conventional structure from the NOMAD data
-    and saves it to a pymatgen-compatible JSON file (fair-structure.json).
-
-    Args:
-        full_data: The complete NOMAD archive data.
-        output_dir: The directory to save the structure file.
-        base_name: The stem of the original input file.
+    Save only the conventional cell to fair-structure.json in a format compatible
+    with the existing viewer: lattice.matrix = 3 Cartesian vectors (Å),
+    sites[].xyz = Cartesian coordinates (Å). Also include frac_coords for reference.
     """
     structure = None
 
-    # 1. Try to get conventional structure directly from NOMAD
+    # 1) Try to get conventional structure from NOMAD topology
     try:
         topology = full_data.get("results", {}).get("material", {}).get("topology", [])
         for entry in topology:
             if entry.get("label") == "conventional cell" and "atoms" in entry:
-                conventional_atoms = entry["atoms"]
-                structure = _nomad_atoms_to_pymatgen(conventional_atoms)
+                structure = _nomad_atoms_to_pymatgen(entry["atoms"])
                 if structure:
                     log.info(f"Using conventional cell from NOMAD for {base_name}.")
                 break
     except Exception as e:
         log.warning(f"Could not extract conventional structure directly from NOMAD: {e}")
 
-    # 2. If not found, derive from primitive cell
+    # 2) Fallback: derive conventional structure from primitive
     if structure is None:
         try:
             primitive_atoms = full_data["run"][0]["system"][0]["atoms"]
@@ -55,26 +48,46 @@ def _create_structure_json(full_data: dict, output_dir: Path, base_name: str):
             if primitive_structure:
                 analyzer = SpacegroupAnalyzer(primitive_structure, symprec=1e-3)
                 structure = analyzer.get_conventional_standard_structure()
-                log.info(f"Generated conventional structure from primitive for {base_name}.")
+                log.info(f"Generated conventional structure for {base_name}.")
         except Exception as e:
             log.warning(f"Failed to derive conventional structure: {e}")
 
-    # 3. Save only the conventional structure
     if structure is None:
-        log.info(f"No structure data extracted, skipping fair-structure.json for {base_name}.")
+        log.info(f"No structure found for {base_name}; skipping fair-structure.json.")
         return
 
+    # 3) Prepare JSON-friendly output: lattice as 3 vectors, sites with xyz (Cartesian)
+    lattice_matrix = np.array(structure.lattice.matrix).tolist()  # [[ax,ay,az],[bx,by,bz],[cx,cy,cz]]
+
+    sites_out = []
+    for site in structure.sites:
+        # site.coords is Cartesian coords in Å
+        cart_xyz = np.array(site.coords).tolist()
+        frac = np.array(site.frac_coords).tolist()
+        sites_out.append({
+            "element": str(site.specie),
+            "xyz": cart_xyz,
+            "frac_coords": frac
+        })
+
+    data = {
+        "lattice": {"matrix": lattice_matrix},
+        "sites": sites_out,
+        "formula": structure.composition.reduced_formula
+    }
+
+    # 4) Save file
     output_path = output_dir / "fair-structure.json"
     try:
         with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(structure.as_dict(), f, indent=2)
+            json.dump(data, f, indent=2)
         log.info(f"Saved conventional structure JSON: {output_path.name}")
     except Exception as e:
         log.error(f"Failed to save {output_path.name}: {e}", exc_info=True)
+        raise
 
 
-
-def _nomad_atoms_to_pymatgen(atoms_block: dict) -> Optional[Structure]:  # <-- CHANGED
+def _nomad_atoms_to_pymatgen(atoms_block: dict) -> Optional[Structure]:
     """
     Converts a NOMAD 'atoms' block (using meters) into a pymatgen Structure (using Angstroms).
     
@@ -107,61 +120,6 @@ def _nomad_atoms_to_pymatgen(atoms_block: dict) -> Optional[Structure]:  # <-- C
     except Exception as e:
         log.error(f"Failed to create pymatgen structure from atoms block: {e}", exc_info=True)
         return None
-
-def _create_structure_json_internal(full_data: dict, output_dir: Path, base_name: str):
-    """
-    Extracts primitive and conventional structures from the NOMAD data
-    and saves them to a pymatgen-compatible JSON file.
-    
-    Args:
-        full_data: The complete, merged NOMAD archive data.
-        output_dir: The directory to save the structure file.
-        base_name: The stem of the original input file.
-    """
-    structures_data = {}
-
-    # 1. Get Primitive (Original) Structure
-    try:
-        # The 'original' structure is in run[0].system[0].atoms
-        primitive_atoms = full_data["run"][0]["system"][0]["atoms"]
-        primitive_structure = _nomad_atoms_to_pymatgen(primitive_atoms)
-        if primitive_structure:
-            structures_data["primitive"] = primitive_structure.as_dict()
-    except (KeyError, IndexError, TypeError) as e:
-        log.warning(f"Could not find primitive structure data: {e}")
-
-    # 2. Get Conventional Structure
-    try:
-        topology = full_data.get("results", {}).get("material", {}).get("topology", [])
-        conventional_cell_data = None
-        for entry in topology:
-            if entry.get("label") == "conventional cell":
-                conventional_cell_data = entry
-                break
-        
-        if conventional_cell_data and "atoms" in conventional_cell_data:
-            conventional_atoms = conventional_cell_data["atoms"]
-            conventional_structure = _nomad_atoms_to_pymatgen(conventional_atoms)
-            if conventional_structure:
-                structures_data["conventional"] = conventional_structure.as_dict()
-        else:
-            log.info(f"No conventional cell found in topology for {base_name}.")
-            
-    except (KeyError, IndexError, TypeError) as e:
-        log.warning(f"Could not find conventional structure data: {e}")
-
-    # 3. Save the JSON file
-    if not structures_data:
-        log.info(f"No structure data extracted, skipping structure.json for {base_name}.")
-        return
-
-    output_path = output_dir / f"fair-structure.json"
-    try:
-        with open(output_path, 'w', encoding='utf-8') as f:
-            json.dump(structures_data, f, indent=2)
-        log.info(f"Successfully saved structure data: {output_path.name}")
-    except Exception as e:
-        log.error(f"Failed to save {output_path.name}: {e}", exc_info=True)
 
 
 def run_parser(input_file: Path, output_dir: Path, force: bool):
