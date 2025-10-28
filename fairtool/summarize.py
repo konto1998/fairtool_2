@@ -142,7 +142,7 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
                             value = kz_points[l]
                             # Format value to at most 6 decimals
                             try:
-                                value_fmt = float(f"{float(value):.6f}")
+                                value_fmt = float(f"{float(value):.3f}")
                             except (TypeError, ValueError):
                                 value_fmt = value
                             #log.info(f"      Component {l} of k-point at ({i},{j},{k}): {value_fmt}")
@@ -359,61 +359,33 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
             except Exception:
                 return default
 
-
-
-
+        # Create markdown report content
         
-        # Find the conventional/primitive cell data
-        #cell_type_data = next((v for k, v in material.items() if "cell" in k.lower()), {})
-        #symmetry_data = cell_type_data.get("symmetry", {}) if cell_type_data else {}
-        #log.info("Successfully extracted data sections.")
-
-        # Create markdown content
         markdown_content = f"""
 {f"# {metadata.get('entry_name', 'FAIR Parsed Report')}"}
 
 <div class="grid cards" markdown>
 
-- ## Calculation Metadata
-
-    | Property                   | Value                                                      |
-    |----------------------------|------------------------------------------------------------|
-    | **Method name**            | {method.get('method_name', 'unavailable')}                 |
-    | **Workflow name**          | {method.get('workflow_name', 'unavailable')}               |
-    | **Program name**           | {simulation.get('program_name', 'unavailable')}            |
-    | **Program version**        | {strip_parens(simulation.get('program_version', 'unavailable'))}         |
-    | **Basis set type**         | {sim_first_nested_data.get('basis_set_type', 'unavailable')}|
-    | **Core electron treatment**| {sim_first_nested_data.get('core_electron_treatment', 'unavailable')}|
-    | **Jacob's ladder**         | {sim_first_nested_data.get('jacobs_ladder', 'unavailable')}|
-    | **XC functional names**    | {', '.join(sim_first_nested_data.get('xc_functional_names', [])) or 'unavailable'}|
-    | **Code-specific tier**     | {sim_second_nested_data.get('native_tier', 'unavailable')} |
-    | **Basis set**              | {sim_second_nested_data.get('basis_set', 'unavailable')}   |
-    | **Entry type**             | {metadata.get('entry_type', 'unavailable')}                |
-    | **Entry name**             | {metadata.get('entry_name', 'unavailable')}                |
-    | **Authors**                | Ravindra Shinde                                            |
-    | **Mainfile**               | {Path(metadata.get('mainfile', 'unavailable')).name}                 |
-    | **Last processing time**   | {datetime.fromisoformat(metadata.get('compilation_datetime', 'unavailable')).strftime('%m/%d/%Y, %I:%M:%S %p') if metadata.get('compilation_datetime') else 'unavailable'}     |
-    | **Processing version**     | 1.0.0                                                       |
-</div>
-
-<div class="grid cards" markdown>
+{{ structure_viewer("fair-structure.json") }}
 
 - ## Material Composition - {t_original_data.get("label")}
 
     | Property                     | Value                       |
     |------------------------------|-----------------------------|
-    | Chemical formula (Hill)      | {t_original_data.get("chemical_formula_hill", "unavailable")} |
     | Chemical formula (IUPAC)     | {t_original_data.get("chemical_formula_iupac", "unavailable")} |
     | Structural type             | **{t_original_data.get("structural_type", "unavailable")}** |
     | Label                       | **{t_original_data.get("label", "unavailable")}** |
-    | Material ID                 | {t_original_data.get("material_id", "unavailable")} |
     | Elements                    | {', '.join(t_original_data.get("elements", [])) or "unavailable"} |
     | Number of elements          | {len(t_original_data.get("elements", []))} |
     | Number of atoms             | {t_original_data.get("n_atoms", "unavailable")} |
 
+</div>
+    
+<div class="grid cards" markdown>
+
 - ## Lattice ({t_original_data.get("label")})
 
-    | Lattice vectors   | Value     | Units |
+    | Lattice constant | Value     | Units |
     |------------------|-----------|-------|
     | a                | **{format_field_numeric(original_cell.get("a", "unavailable"), "a")}** | Angstrom |
     | b                | **{format_field_numeric(original_cell.get("b", "unavailable"), "b")}** | Angstrom |
@@ -431,22 +403,10 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | Mass density     | **{format_field_numeric(original_cell.get("mass_density","unavailable"), "mass_density")}** | kg / Å³ |
     | Atomic density   | **{format_field_numeric(original_cell.get("atomic_density", "unavailable"), "atomic_density")}** | Å⁻³ |
 
-- ## Material Composition - {t_cell_data.get("label")}
-    
-    | Property                     | Value                       |
-    |------------------------------|-----------------------------|
-    | Chemical formula (Hill)      | {t_cell_data.get("chemical_formula_hill", "unavailable")} |
-    | Chemical formula (IUPAC)     | {t_cell_data.get("chemical_formula_iupac", "unavailable")} |
-    | Structural type             | **{t_cell_data.get("structural_type", "unavailable")}** |
-    | Label                       | **{t_cell_data.get("label", "unavailable")}** |
-    | Material ID                 | {t_cell_data.get("material_id", "unavailable")} |
-    | Elements                    | {', '.join(t_cell_data.get("elements", [])) or "unavailable"} |
-    | Number of elements          | {len(t_cell_data.get("elements", []))} |
-    | Number of atoms             | {t_cell_data.get("n_atoms", "unavailable")} |
 
 - ## Lattice ({t_cell_data.get("label")})
 
-    | Lattice vectors   | Value     | Units |
+    | Lattice constant | Value     | Units |
     |------------------|-----------|-------|
     | a                | **{format_field_numeric(cell_type_data.get("a", "unavailable"), "a")}** | Angstrom |
     | b                | **{format_field_numeric(cell_type_data.get("b", "unavailable"), "b")}** | Angstrom |
@@ -464,7 +424,7 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | Mass density     | **{format_field_numeric(cell_type_data.get("mass_density", "unavailable"), "mass_density")}** | kg / Å³ |
     | Atomic density   | **{format_field_numeric(cell_type_data.get("atomic_density", "unavailable"), "atomic_density")}** | Å⁻³ |
 
-- ## Symmetry({t_cell_data.get("label")})
+- ## Symmetry ({t_cell_data.get("label")})
 
     | Property                       | Value            |
     |---------------------------------|------------------|
@@ -478,8 +438,6 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | Hall symbol                     | **{t_cell_data_sym.get("hall_symbol", "unavailable")}** |
     | Prototype name                  | **{t_cell_data_sym.get("prototype_name", "unavailable")}** |
     | Prototype label aflow           | **{t_cell_data_sym.get("prototype_label_aflow", "unavailable")}** |
-</div>
-<div class="grid cards" markdown>
 
 - ## K points information
 
@@ -489,8 +447,30 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | Sampling method        | **{k_mesh.get("sampling_method", "unavailable")}** |
     | Number of points       | **{k_mesh.get("n_points", "unavailable")}** |
     | Grid                   | **{k_mesh.get("grid", "unavailable")}** |
+    
+- ## Calculation Metadata
 
-- ## K points and Weights
+    | Property                   | Value                                                      |
+    |----------------------------|------------------------------------------------------------|
+    | **Method name**            | {method.get('method_name', 'unavailable')}                 |
+    | **Workflow name**          | {method.get('workflow_name', 'unavailable')}               |
+    | **Program name**           | {simulation.get('program_name', 'unavailable')}            |
+    | **Program version**        | {strip_parens(simulation.get('program_version', 'unavailable'))}         |
+    | **Basis set type**         | {sim_first_nested_data.get('basis_set_type', 'unavailable')}|
+    | **Core electron treatment**| {sim_first_nested_data.get('core_electron_treatment', 'unavailable')}|
+    | **Jacob's ladder**         | {sim_first_nested_data.get('jacobs_ladder', 'unavailable')}|
+    | **XC functional names**    | {', '.join(sim_first_nested_data.get('xc_functional_names', [])) or 'unavailable'}|
+    | **Code-specific tier**     | {sim_second_nested_data.get('native_tier', 'unavailable')} |
+    | **Basis set**              | {sim_second_nested_data.get('basis_set', 'unavailable')}   |
+    | **Entry type**             | {metadata.get('entry_type', 'unavailable')}                |
+    | **Entry name**             | {metadata.get('entry_name', 'unavailable')}                |
+    | **Mainfile**               | {Path(metadata.get('mainfile', 'unavailable')).name}                 |
+
+</div>
+
+<div class="grid cards" markdown>
+
+- ## k-points and weights
 
     | kx | ky | kz | Weight |
     |----|----|----|--------|
