@@ -360,13 +360,13 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
                 return default
 
         # Create markdown report content
-        
+
         markdown_content = f"""
 {f"# {metadata.get('entry_name', 'FAIR Parsed Report')}"}
 
 <div class="grid cards" markdown>
 
-{{ structure_viewer("fair-structure.json") }}
+{{{{ structure_viewer("fair-structure.json") }}}}
 
 - ## Material Composition - {t_original_data.get("label")}
 
@@ -465,10 +465,6 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | **Entry type**             | {metadata.get('entry_type', 'unavailable')}                |
     | **Entry name**             | {metadata.get('entry_name', 'unavailable')}                |
     | **Mainfile**               | {Path(metadata.get('mainfile', 'unavailable')).name}                 |
-
-</div>
-
-<div class="grid cards" markdown>
 
 - ## k-points and weights
 
