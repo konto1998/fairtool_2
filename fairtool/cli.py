@@ -48,7 +48,7 @@ def about():
     console.print("")
     console.rule()
     console.print("FAIR Tool - Computational Materials Data Processing made FAIR", style="bold magenta")
-    console.print(r""""
+    console.print(r"""
   █████▒ ▄▄▄       ██▓ ██▀███  ▄▄▄█████▓ ▒█████   ▒█████   ██▓
 ▓██   ▒ ▒████▄    ▓██▒▓██ ▒ ██▒▓  ██▒ ▓▒▒██▒  ██▒▒██▒  ██▒▓██▒
 ▒████ ░ ▒██  ▀█▄  ▒██▒▓██ ░▄█ ▒▒ ▓██░ ▒░▒██░  ██▒▒██░  ██▒▒██░
@@ -205,7 +205,6 @@ def parse(
 ):
     """
     Parse calculation output files into structured JSON and Markdown.
-    Uses electronic-parsers.
     """
 
     log.info("FAIR Tool - Parse Command")
