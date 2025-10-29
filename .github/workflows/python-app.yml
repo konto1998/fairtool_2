@@ -5,8 +5,10 @@ name: Application unit tests
 
 on:
   # Run the workflow for every push (every commit) and for all pull requests
-  push: {}
-  pull_request: {}
+  push:
+    branches: ["main"]
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: read
