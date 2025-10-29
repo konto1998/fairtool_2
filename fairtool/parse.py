@@ -134,10 +134,7 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
     """
     # Define output file paths
     base_name = input_file.stem
-    #safe_name = "_".join(input_file.parts[1:])  # remove leading "/" and join all parts
-    #safe_name = safe_name.replace(os.sep, "_")  # extra safety for Windows
     json_output_path = output_dir / f"fair_parsed_{base_name}.json"
-    #md_output_path = output_dir / f"fair_parsed_{base_name}.md"
 
     log.info(f"Preparing to parse {json_output_path} ...")
 
