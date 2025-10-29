@@ -250,7 +250,19 @@ def parse(
         else:
             search_path = home
             log.info(f"No input path or search directory provided. Defaulting to linux path: {home}")  
-  
+    # Handle direct programmatic calls: parse_cmd(input_path, output_dir, force=False)
+    # If the caller passed a file as input_path and a directory as the second positional
+    # argument (which Typer treats as `search_dir`), interpret that second arg as output_dir.
+    if input_path and input_path.exists() and input_path.is_file() and search_dir is not None and output_dir is None:
+        try:
+            if search_dir.exists() and search_dir.is_dir():
+                output_dir = search_dir
+                search_path = input_path
+                deep_search = False
+                log.debug("Interpreting second positional argument as output_dir for direct function calls.")
+        except Exception:
+            # If anything goes wrong with these checks, fall back to normal behavior.
+            pass
 
     log.info(f"Search depth (recursive): {deep_search}")
     log.info(f"Starting parsing process for: {search_path}")
