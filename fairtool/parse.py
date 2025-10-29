@@ -13,6 +13,7 @@ from typing import Optional
 from pymatgen.core import Structure, Lattice 
 from pymatgen.symmetry.analyzer import SpacegroupAnalyzer
 
+import os
 # from electronic_parsers import auto
 ELEMENTARY_CHARGE_VALUE = 1.602176634e-19  # Elementary charge in Coulombs, used for energy conversion if needed
 
@@ -134,7 +135,8 @@ def run_parser(input_file: Path, output_dir: Path, force: bool):
     # Define output file paths
     base_name = input_file.stem
     json_output_path = output_dir / f"fair_parsed_{base_name}.json"
-    md_output_path = output_dir / f"fair_parsed_{base_name}.md"
+
+    log.info(f"Preparing to parse {json_output_path} ...")
 
     # If not forcing, check existing parsed JSON metadata to decide whether to skip
     if not force:

@@ -1,10 +1,11 @@
 # fairtool/cli.py
 
 """Main CLI entry point for the FAIR tool."""
-
+import os
 import typer
 from typing_extensions import Annotated
 from pathlib import Path
+from typing import Optional
 import logging
 import rich
 import sys
@@ -36,7 +37,6 @@ app = typer.Typer(
     no_args_is_help=True,
     callback=None,
 )
-
 
 # --- Typer Command Definitions ---
 @app.command()
@@ -80,8 +80,17 @@ def about():
 
 # --- Helper Functions ---
 
-def _find_calc_files(path: Path) -> list[Path]:
-    """Finds relevant calculation files in a directory or returns the file itself."""
+def _find_calc_files(path: Path, recursive: bool = True) -> list[Path]:
+    """
+    Finds relevant calculation files for parsing.
+
+    Args:
+        path (Path): The root path or file to inspect.
+        recursive (bool): If True, search all subdirectories. If False, only the given directory.
+
+    Returns:
+        list[Path]: List of calculation files to process.
+    """
     files_to_process = []
     if not path.exists():
         log.error(f"Error: Input path does not exist: {path}")
@@ -90,15 +99,57 @@ def _find_calc_files(path: Path) -> list[Path]:
     if path.is_file():
         # TODO: Add more sophisticated file type checking if needed
         files_to_process.append(path)
+        #ask user to confirm processing this file
+        confirm =input(f"Proceed to process the file {path}? (y/n): ")
+        if confirm.lower() != 'y':
+            log.info("Aborting file processing as per user request.")
+            raise typer.Exit(code=0)
+
     elif path.is_dir():
         # TODO: Implement logic to find relevant files (e.g., VASP OUTCAR, QE output)
         # This is a placeholder - customize based on expected file names/extensions
-        log.info(f"Searching for calculation files in directory: {path}")
-        # Example: find all files named 'OUTCAR' or ending with '.out'
-        potential_files = list(path.rglob("OUTCAR")) + list(path.rglob("*.out"))
+        #log.info(f"Searching for calculation files in: {path}")
+        #log.info(f"Recursive search: {recursive}")
+
+        # Pick search strategy
+        search_method = path.rglob if recursive else path.glob
+
+        # Typical calculation file types
+        potential_files = (
+            list(search_method("vasprun.xml"))+
+            #list(search_method("OUTCAR")) +
+            #list(search_method("*.out")) +
+            list(search_method("*.xml"))
+        )
+
+
         if not potential_files:
              log.warning(f"No potential calculation files found in {path}")
-        files_to_process.extend(potential_files)
+        else:
+            log.info(f"Found {len(potential_files)} potential calculation files.")
+            #for f in potential_files:
+            #    log.info(f" - {f}")
+            
+            # show which directories they were found in
+            unique_dirs = sorted(set(f.parent for f in potential_files))
+            log.info("\n Detected directories with calculation files:")
+            
+            for d in unique_dirs:
+                log.info(f" - {d}")
+                #highlight files in this directory
+                for f in potential_files:
+                    if f.parent == d:
+                        log.info(f"    - {f.name}")
+
+            #ask user to confirm processing all found files
+            confirm =input(f"Proceed to process all {len(potential_files)} files? (y/n): ")
+            if confirm.lower() != 'y':
+                log.info("Aborting file processing as per user request.")
+                raise typer.Exit(code=0)
+        
+            files_to_process.extend(potential_files)
+        
+
         # Add more specific file finding logic here based on electronic-parsers capabilities
     else:
         log.error(f"Error: Input path is neither a file nor a directory: {path}")
@@ -119,18 +170,34 @@ def version_callback(value: bool):
 
 @app.command()
 def parse(
-    input_path: Annotated[Path, typer.Argument(
-        help="Path to a calculation output file or a directory containing them.",
-        exists=True, # Typer checks if it exists, but we double-check type later
-        file_okay=True,
-        dir_okay=True,
-        resolve_path=True, # Converts to absolute path
-    )],
-    output_dir: Annotated[Path, typer.Option(
-        "--output", "-o",
-        help="Directory to save parsed JSON and Markdown files.",
+    input_path: Annotated[Optional[Path], typer.Argument(
+        help="Path to a calculation output file (single file only).",
+        exists=False,     
+        file_okay=True,   
+        dir_okay=False,   
+        resolve_path=True 
+    )] = None,
+
+    search_dir: Annotated[Optional[Path], typer.Option(
+        "--directory", "-d",
+        help="Directory to search for calculation output files (e.g., vasprun.xml, OUTCAR).",
         resolve_path=True,
-    )] = Path("./"),
+    )] = None,
+
+    root_directory: Annotated[Optional[Path], typer.Option(
+        "--root-directory", "-r",
+        help="Root directory to search recursively through (e.g., /home/user/projects).",
+        resolve_path=True,
+    )] = None,
+
+
+    output_dir: Annotated[Optional[Path], typer.Option(
+        "--output", "-o",
+        help="Directory to save parsed JSON files. "
+             "If not given, parsed files will be saved next to the originals.",
+        resolve_path=True,
+    )] = None,
+
     force: Annotated[bool, typer.Option(
         "--force", "-f",
         help="Overwrite existing output files."
@@ -138,22 +205,64 @@ def parse(
 ):
     """
     Parse calculation output files into structured JSON and Markdown.
-    Uses electronic-parsers.
     """
-    log.info(f"Starting parsing process for: {input_path}")
-    output_dir.mkdir(parents=True, exist_ok=True)
-    log.info(f"Output will be saved to: {output_dir}")
 
-    files_to_process = _find_calc_files(input_path)
+    log.info("FAIR Tool - Parse Command")
+    log.info(f"Input Path: {input_path}")
+    log.info(f"Search Directory: {search_dir}")
+    log.info(f"Root Directory: {root_directory}")
+    log.info(f"Output Directory: {output_dir}")
+    log.info(f"Force Overwrite: {force}")
+
+    # --- Determine search path behavior ---
+    # so if there is not path provided, we default to home directory based on OS
+    if root_directory: # if root_directory is provided after -r, use it
+        search_path = root_directory
+        deep_search = True
+    elif search_dir: # if search_dir is provided after -d, use it
+        search_path = search_dir
+        deep_search = False
+    elif input_path: # if input_path is provided,after parse command, use it
+        search_path = input_path
+        deep_search = False
+    else:
+        home = Path.home()
+        log.info(f"Home path: {home}.")
+        system_name = sys.platform
+        log.info(f"System platform: {system_name}.")
+        deep_search = True
+        
+        if "windows" in system_name.lower():
+            user_name = home.name
+            search_path = Path(f"C:\\users\\{user_name}\\")
+            log.info(f"No input path or search directory provided. Defaulting to windows path: C:\\users\\{user_name}\\")
+        else:
+            search_path = home
+            log.info(f"No input path or search directory provided. Defaulting to linux path: {home}")  
+  
+
+    #log.info(f"Search path: {search_path}")
+    log.info(f"Search depth (recursive): {deep_search}")
+
+    log.info(f"Starting parsing process for: {search_path}")
+
+
+    files_to_process = _find_calc_files(search_path, recursive=deep_search)
     if not files_to_process:
         log.warning("No files found to parse.")
         return # Exit gracefully
 
     for file in files_to_process:
         try:
+
+            # If no --output given, use file’s directory
+            target_dir = output_dir if output_dir else file.parent
+            target_dir.mkdir(parents=True, exist_ok=True)
+            
             # Check for existing parsed JSON and decide whether to skip parsing
             base_name = file.stem
-            json_output_path = output_dir / f"fair_parsed_{base_name}.json"
+            json_output_path = target_dir/ f"fair_parsed_{base_name}.json"
+
 
             if not force and json_output_path.exists():
                 try:
@@ -174,7 +283,7 @@ def parse(
                     log.debug(f"Could not read existing parse metadata for {json_output_path}; will re-parse.")
 
             log.info(f"Parsing file: {file}")
-            parse_module.run_parser(file, output_dir, force)
+            parse_module.run_parser(file, target_dir, force)
         except Exception as e:
             log.error(f"Failed to parse {file}: {e}", exc_info=True)
             # Optionally continue to next file or exit
