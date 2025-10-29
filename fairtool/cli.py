@@ -80,7 +80,7 @@ def about():
 
 # --- Helper Functions ---
 
-def _find_calc_files(path: Path, recursive: bool = True) -> list[Path]:
+def _find_calc_files(path: Path, recursive: bool = True, assume_yes: bool = False) -> list[Path]:
     """
     Finds relevant calculation files for parsing.
 
@@ -99,11 +99,15 @@ def _find_calc_files(path: Path, recursive: bool = True) -> list[Path]:
     if path.is_file():
         # TODO: Add more sophisticated file type checking if needed
         files_to_process.append(path)
-        #ask user to confirm processing this file
-        confirm =input(f"Proceed to process the file {path}? (y/n): ")
-        if confirm.lower() != 'y':
-            log.info("Aborting file processing as per user request.")
-            raise typer.Exit(code=0)
+        # ask user to confirm processing this file (use Typer confirm when interactive)
+        if not assume_yes:
+            interactive = sys.stdin.isatty()
+            if not interactive:
+                log.info("Non-interactive environment detected; proceeding without confirmation.")
+            else:
+                if not typer.confirm(f"Proceed to process the file {path}? (y/n): "):
+                    log.info("Aborting file processing as per user request.")
+                    raise typer.Exit(code=0)
 
     elif path.is_dir():
         # TODO: Implement logic to find relevant files (e.g., VASP OUTCAR, QE output)
@@ -141,11 +145,15 @@ def _find_calc_files(path: Path, recursive: bool = True) -> list[Path]:
                     if f.parent == d:
                         log.info(f"    - {f.name}")
 
-            #ask user to confirm processing all found files
-            confirm =input(f"Proceed to process all {len(potential_files)} files? (y/n): ")
-            if confirm.lower() != 'y':
-                log.info("Aborting file processing as per user request.")
-                raise typer.Exit(code=0)
+            # ask user to confirm processing all found files
+            if not assume_yes:
+                interactive = sys.stdin.isatty()
+                if not interactive:
+                    log.info("Non-interactive environment detected; proceeding without confirmation.")
+                else:
+                    if not typer.confirm(f"Proceed to process all {len(potential_files)} files? (y/n): "):
+                        log.info("Aborting file processing as per user request.")
+                        raise typer.Exit(code=0)
         
             files_to_process.extend(potential_files)
         
@@ -190,7 +198,6 @@ def parse(
         resolve_path=True,
     )] = None,
 
-
     output_dir: Annotated[Optional[Path], typer.Option(
         "--output", "-o",
         help="Directory to save parsed JSON files. "
@@ -202,17 +209,21 @@ def parse(
         "--force", "-f",
         help="Overwrite existing output files."
     )] = True,
+    yes: Annotated[bool, typer.Option(
+        "--yes", "-y",
+        help="Assume yes for all interactive prompts (non-interactive/batch mode)."
+    )] = False,
 ):
     """
     Parse calculation output files into structured JSON and Markdown.
     """
 
-    log.info("FAIR Tool - Parse Command")
-    log.info(f"Input Path: {input_path}")
-    log.info(f"Search Directory: {search_dir}")
-    log.info(f"Root Directory: {root_directory}")
-    log.info(f"Output Directory: {output_dir}")
-    log.info(f"Force Overwrite: {force}")
+    #log.info("FAIR Tool - Parse Command")
+    #log.info(f"Input Path: {input_path}")
+    #log.info(f"Search Directory: {search_dir}")
+    #log.info(f"Root Directory: {root_directory}")
+    #log.info(f"Output Directory: {output_dir}")
+    #log.info(f"Force Overwrite: {force}")
 
     # --- Determine search path behavior ---
     # so if there is not path provided, we default to home directory based on OS
@@ -227,9 +238,9 @@ def parse(
         deep_search = False
     else:
         home = Path.home()
-        log.info(f"Home path: {home}.")
+        #log.info(f"Home path: {home}.")
         system_name = sys.platform
-        log.info(f"System platform: {system_name}.")
+        #log.info(f"System platform: {system_name}.")
         deep_search = True
         
         if "windows" in system_name.lower():
@@ -241,13 +252,11 @@ def parse(
             log.info(f"No input path or search directory provided. Defaulting to linux path: {home}")  
   
 
-    #log.info(f"Search path: {search_path}")
     log.info(f"Search depth (recursive): {deep_search}")
-
     log.info(f"Starting parsing process for: {search_path}")
 
 
-    files_to_process = _find_calc_files(search_path, recursive=deep_search)
+    files_to_process = _find_calc_files(search_path, recursive=deep_search, assume_yes=yes)
     if not files_to_process:
         log.warning("No files found to parse.")
         return # Exit gracefully
