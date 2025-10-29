@@ -20,7 +20,8 @@ def make_nomad_process(stdout_text: str):
 
 def test_run_parser_writes_fair_parse_time(tmp_path, monkeypatch):
     # Create a dummy input file
-    input_file = tmp_path / "input.out"
+    # input_file = tmp_path / "input.out"
+    input_file = tmp_path / "vasprun.xml"
     input_file.write_text("dummy content")
 
     output_dir = tmp_path / "out"
@@ -103,7 +104,8 @@ def test_run_parser_writes_fair_parse_time(tmp_path, monkeypatch):
 @patch('fairtool.parse.run_parser')
 def test_cli_skips_when_unchanged(mock_run_parser, tmp_path):
     # Create a dummy input file
-    input_file = tmp_path / "input2.out"
+    #input_file = tmp_path / "input2.out"
+    input_file = tmp_path / "vasprun2.xml"
     input_file.write_text("content")
 
     output_dir = tmp_path / "out2"
@@ -125,7 +127,8 @@ def test_cli_skips_when_unchanged(mock_run_parser, tmp_path):
 @patch('fairtool.parse.run_parser')
 def test_cli_runs_when_missing_fair_parse_time(mock_run_parser, tmp_path):
     # Create a dummy input file
-    input_file = tmp_path / "input3.out"
+    #input_file = tmp_path / "input3.out"
+    input_file = tmp_path / "vasprun3.xml"
     input_file.write_text("content")
 
     output_dir = tmp_path / "out3"
