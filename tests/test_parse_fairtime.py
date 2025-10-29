@@ -20,7 +20,8 @@ def make_nomad_process(stdout_text: str):
 
 def test_run_parser_writes_fair_parse_time(tmp_path, monkeypatch):
     # Create a dummy input file
-    input_file = tmp_path / "input.out"
+    # input_file = tmp_path / "input.out"
+    input_file = tmp_path / "vaprun.xml"
     input_file.write_text("dummy content")
 
     output_dir = tmp_path / "out"
