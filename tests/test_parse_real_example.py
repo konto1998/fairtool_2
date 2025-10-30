@@ -1,431 +1,27 @@
 import json
 import copy
 from pathlib import Path
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
+import subprocess
+import time
 
 import pytest
 
 from fairtool.parse import run_parser
 
-REFERENCE_JSON_DATA = {
-  "run": [
-    {
-      "program": {
-        "name": "VASP",
-        "version": "6.3.0 20Jan22 (build Feb 17 2022 08:07:03) complex parallel LinuxGNU",
-        "compilation_datetime": 1713025724.0
-      },
-      "method": [
-        {
-          "dft": {
-            "xc_functional": {
-              "name": "GGA_C_PBE+GGA_X_PBE",
-              "exchange": [
-                {
-                  "name": "GGA_X_PBE"
-                }
-              ],
-              "correlation": [
-                {
-                  "name": "GGA_C_PBE"
-                }
-              ]
-            }
-          },
-          "k_mesh": {
-            "dimensionality": 3,
-            "sampling_method": "Gamma-centered",
-            "n_points": 64,
-            "grid": [
-              4,
-              4,
-              4
-            ]
-            # ... (k_mesh.points and k_mesh.weights truncated for brevity)
-          },
-          "electronic": {
-            "method": "DFT"
-          },
-          "scf": {
-            "threshold_energy_change": 1.602176634e-25
-          },
-          "atom_parameters": [
-            {
-              "atom_number": 80,
-              "label": "Hg"
-            },
-            {
-              "atom_number": 47,
-              "label": "Ag"
-            },
-            {
-              "atom_number": 55,
-              "label": "Cs"
-            },
-            {
-              "atom_number": 17,
-              "label": "Cl"
-            }
-          ],
-          "electrons_representation": [
-            {
-              "native_tier": "VASP - normal",
-              "type": "plane waves",
-              "scope": [
-                "wavefunction"
-              ],
-              "basis_set": [
-                {
-                  "type": "plane waves",
-                  "scope": [
-                    "valence"
-                  ],
-                  "cutoff": 5.607618219e-17
-                },
-                {
-                  "type": "plane waves",
-                  "scope": [
-                    "augmentation"
-                  ],
-                  "cutoff": 8.472310040591999e-17
-                }
-              ]
-            }
-          ]
-        }
-      ],
-      "system": [
-        {
-          "type": "bulk",
-          "configuration_raw_gid": "scfzvMx_YwTtsZx9zYSDrt20HTjB",
-          "is_representative": True,
-          "chemical_composition": "HgAgCsCsClClClClClCl",
-          "chemical_composition_hill": "AgCl6Cs2Hg",
-          "chemical_composition_reduced": "AgCl6Cs2Hg",
-          "atoms": {
-            "species": [
-              80,
-              47,
-              55,
-              55,
-              17,
-              17,
-              17,
-              17,
-              17,
-              17
-            ],
-            "labels": [
-              "Hg",
-              "Ag",
-              "Cs",
-              "Cs",
-              "Cl",
-              "Cl",
-              "Cl",
-              "Cl",
-              "Cl",
-              "Cl"
-            ],
-            "positions": [
-              [
-                0.0,
-                0.0,
-                0.0
-              ],
-              [
-                5.1693238e-10,
-                5.1693238e-10,
-                5.1693238e-10
-              ],
-              [
-                2.5846619e-10,
-                2.5846619e-10,
-                2.5846619e-10
-              ],
-              [
-                7.7539857e-10,
-                7.7539857e-10,
-                7.7539857e-10
-              ],
-              [
-                2.618106804667144e-10,
-                5.1693238e-10,
-                5.1693238e-10
-              ],
-              [
-                7.720540795332856e-10,
-                5.1693238e-10,
-                5.1693238e-10
-              ],
-              [
-                5.1693238e-10,
-                2.618106804667144e-10,
-                5.1693238e-10
-              ],
-              [
-                5.1693238e-10,
-                7.720540795332856e-10,
-                5.1693238e-10
-              ],
-              [
-                5.1693238e-10,
-                5.1693238e-10,
-                2.618106804667144e-10
-              ],
-              [
-                5.1693238e-10,
-                5.1693238e-10,
-                7.720540795332856e-10
-              ]
-            ],
-            "lattice_vectors": [
-              [
-                0.0,
-                5.1693238e-10,
-                5.1693238e-10
-              ],
-              [
-                5.1693238e-10,
-                0.0,
-                5.1693238e-10
-              ],
-              [
-                5.1693238e-10,
-                5.1693238e-10,
-                0.0
-              ]
-            ],
-            "periodic": [
-              True,
-              True,
-              True
-            ]
-            # ... (atoms.lattice_vectors_reciprocal truncated)
-          },
-          "symmetry": [
-            {
-              "bravais_lattice": "cF",
-              "crystal_system": "cubic",
-              "hall_number": 523,
-              "hall_symbol": "-F 4 2 3",
-              "international_short_symbol": "Fm-3m",
-              "point_group": "m-3m",
-              "space_group_number": 225
-              # ... (symmetry.system_* truncated)
-            }
-          ]
-        }
-      ],
-      "calculation": [
-        {
-          "system_ref": "#/run/0/system/0",
-          "method_ref": "#/run/0/method/0",
-          "energy": {
-            "fermi": 2.731706979288985e-19,
-            "highest_occupied": 2.73171116097e-19,
-            "lowest_unoccupied": 2.8924094773601997e-19,
-            "total": {
-              "value": -4.800089328170749e-18
-            },
-            "free": {
-              "value": -4.800089911363044e-18
-            },
-            "total_t0": {
-              "value": -4.800089619766897e-18
-            }
-          },
-          "forces": {
-            "total": {
-              "value": [
-                [
-                  -6.1844018072399995e-15,
-                  1.4259372042599997e-15,
-                  -8.76390618798e-15
-                ]
-                # ... (forces truncated)
-              ]
-            }
-          },
-          "stress": {
-            "total": {
-              "value": [
-                [
-                  2497744542.0,
-                  -752187.0,
-                  -721797.0
-                ],
-                [
-                  -752196.0,
-                  2565666923.0,
-                  -775176.0
-                ],
-                [
-                  -721861.0,
-                  -775175.0,
-                  2492460338.0
-                ]
-              ]
-            }
-          },
-          "band_gap": [
-            {
-              "index": 0,
-              "value": 1.1576367051303598e-18
-              # ... (band_gap truncated)
-            }
-          ],
-          "scf_iteration": [
-            {
-              "energy": {
-                "total": {
-                  "value": 1.120151826584347e-16
-                }
-                # ... (scf_iteration[0] truncated)
-              }
-            }
-            # ... (scf_iteration list truncated, full list is in the reference file)
-          ]
-        }
-      ]
-    }
-  ],
-  "metadata": {
-    "entry_name": "Cs2AgHgCl6 VASP DFT SinglePoint simulation",
-    "entry_type": "VASP DFT SinglePoint",
-    "mainfile": "/home/shinde/sandbox/fairtool/tests/VASP/example01/vasprun.xml",
-    "domain": "dft",
-    "optimade": {
-      "elements": [
-        "Ag",
-        "Cl",
-        "Cs",
-        "Hg"
-      ],
-      "nelements": 4,
-      "chemical_formula_reduced": "AgCl6Cs2Hg"
-      # ... (metadata.optimade truncated)
-    }
-  },
-  "results": {
-    "material": {
-      "material_id": "ImNwsjRVt1oPkznR4Fb3xrtS7IgJ",
-      "structural_type": "bulk",
-      "dimensionality": "3D",
-      "elements": [
-        "Ag",
-        "Cl",
-        "Cs",
-        "Hg"
-      ],
-      "chemical_formula_descriptive": "Cs2AgHgCl6",
-      "chemical_formula_reduced": "AgCl6Cs2Hg",
-      "chemical_formula_hill": "AgCl6Cs2Hg",
-      "symmetry": {
-        "bravais_lattice": "cF",
-        "crystal_system": "cubic",
-        "hall_number": 523,
-        "hall_symbol": "-F 4 2 3",
-        "point_group": "m-3m",
-        "space_group_number": 225,
-        "space_group_symbol": "Fm-3m"
-      },
-      "topology": [
-        {
-          "system_id": "results/material/topology/0",
-          "label": "original",
-          "n_atoms": 10
-          # ... (topology[0] truncated)
-        },
-        {
-          "system_id": "results/material/topology/1",
-          "label": "subsystem",
-          "n_atoms": 10
-          # ... (topology[1] truncated)
-        },
-        {
-          "system_id": "results/material/topology/2",
-          "label": "conventional cell",
-          "n_atoms": 40,
-          "symmetry": {
-             "bravais_lattice": "cF",
-             "crystal_system": "cubic",
-             "space_group_number": 225,
-             "space_group_symbol": "Fm-3m"
-             # ... (topology[2].symmetry truncated)
-          }
-          # ... (topology[2] truncated)
-        }
-      ]
-    },
-    "method": {
-      "method_name": "DFT",
-      "workflow_name": "SinglePoint",
-      "simulation": {
-        "program_name": "VASP",
-        "program_version": "6.3.0 20Jan22 (build Feb 17 2022 08:07:03) complex parallel LinuxGNU",
-        "dft": {
-          "basis_set_type": "plane waves",
-          "core_electron_treatment": "pseudopotential",
-          "scf_threshold_energy_change": 1.602176634e-25,
-          "jacobs_ladder": "GGA",
-          "xc_functional_type": "GGA",
-          "xc_functional_names": [
-            "GGA_C_PBE",
-            "GGA_X_PBE"
-          ]
-        },
-        "precision": {
-          "native_tier": "VASP - normal",
-          "basis_set": "plane waves",
-          "planewave_cutoff": 5.607618219e-17
-        }
-      }
-    },
-    "properties": {
-      "n_calculations": 1,
-      "electronic": {
-        "band_gap": [
-          {
-            "index": 0,
-            "value": 1.1576367051303598e-18
-            # ... (band_gap truncated)
-          },
-          {
-            "index": 1,
-            "value": 1.0942065321903e-18
-            # ... (band_gap truncated)
-          }
-        ],
-        "dos_electronic": [
-          {
-            "spin_polarized": True,
-            "energy_fermi": 2.731706979288985e-19
-            # ... (dos_electronic truncated)
-          }
-        ]
-      }
-    }
-  }
-}
+# --- [NEW] Session-scoped fixture to load the reference data once ---
+@pytest.fixture(scope="session")
+def reference_data():
+    """Loads the shared reference JSON data from a file."""
+    # Assumes the file is in the same directory as this test file
+    ref_path = Path(__file__).parent / "reference_data.json"
+    if not ref_path.exists():
+        pytest.skip(f"Reference data file not found. Create: {ref_path}")
+    with open(ref_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
-@pytest.fixture
-def reference_json_file(tmp_path):
-    """
-    Creates the 'reference.json' file in the tmp_path directory
-    and returns its Path object.
-    """
-    # We create the reference file in tmp_path to make the test hermetic.
-    ref_file = tmp_path / "reference.json"
-    
-    # We use the full JSON data, but to keep this file readable,
-    # we'll use the constant defined above.
-    ref_file.write_text(json.dumps(REFERENCE_JSON_DATA), encoding='utf-8')
-    return ref_file
-
-
-def test_parse_vasprun_example_matches_reference(tmp_path, monkeypatch, reference_json_file):
+def test_parse_vasprun_example_matches_reference(tmp_path, monkeypatch, reference_data): # <-- [MODIFIED]
     """
     Mock the `nomad parse` subprocess to return the provided reference JSON
     (now treated as the raw nomad output) and compare the final parsed file
@@ -437,8 +33,8 @@ def test_parse_vasprun_example_matches_reference(tmp_path, monkeypatch, referenc
     input_file.write_text("<scf>dummy vasprun content</scf>")
 
     # 2. Load the reference data
-    # This is used as the *base* for the mock nomad output
-    reference_data = json.loads(reference_json_file.read_text(encoding='utf-8'))
+    # [MODIFIED] This now comes directly from the 'reference_data' fixture
+    # The old 'reference_json_file' fixture and the json.loads() call are removed.
     
     # Create a deep copy to use as the mock output.
     # This mock represents the *final merged* object after the `while` loop in `run_parser`.
@@ -558,4 +154,198 @@ def test_parse_vasprun_example_matches_reference(tmp_path, monkeypatch, referenc
     expected_final_data["metadata"].pop("section_defs", None)
 
     assert produced_data == expected_final_data
+
+# --- [NEW TEST 0] ---
+def test_parser_handles_parse_failure(tmp_path, monkeypatch, caplog):
+    """
+    Tests that run_parser correctly handles a failure
+    from the subprocess.
+    """
+    # 1. Create a dummy input file
+    input_file = tmp_path / "vasprun_bad.xml"
+    input_file.write_text("<bad>content</bad>")
+
+    # 2. Mock the subprocess.run to raise an error
+    monkeypatch.setattr(
+        "subprocess.run",
+        MagicMock(
+            side_effect=subprocess.CalledProcessError(
+                returncode=1, cmd="nomad parse", stderr="File is not valid"
+            )
+        )
+    )
+
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    # 3. Run the parser and check that it raises the error
+    with pytest.raises(subprocess.CalledProcessError):
+        run_parser(input_file, out_dir, force=True)
+
+    # 4. Check that the error was logged (optional)
+    assert "NOMAD parsing command failed" in caplog.text    
+
+
+# --- [NEW TEST 1] ---
+@pytest.mark.parametrize("force_flag", [True, False])
+def test_parser_handles_empty_nomad_output(tmp_path, monkeypatch, caplog, force_flag):
+    """
+    Tests that run_parser handles empty stdout from nomad,
+    both with and without the --force flag.
+    """
+    input_file = tmp_path / "vasprun_empty.xml"
+    input_file.write_text("dummy")
+    
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    # Mock subprocess.run to return an empty string
+    fake_proc = MagicMock()
+    fake_proc.stdout = ""
+    fake_proc.stderr = ""
+    fake_proc.returncode = 0
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: fake_proc)
+
+    # Run parser
+    skipped = run_parser(input_file, out_dir, force=force_flag)
+
+    # It should not have skipped, but it also shouldn't crash
+    assert not skipped
+    assert "Parser returned no data" in caplog.text
+    
+    # It should not have created a file
+    produced_file = out_dir / f"fair_parsed_{input_file.stem}.json"
+    assert not produced_file.exists()
+
+
+# --- [NEW TEST 2] ---
+def test_parser_handles_invalid_json_output(tmp_path, monkeypatch, caplog):
+    """
+    Tests that run_parser raises JSONDecodeError if nomad
+    returns non-JSON output.
+    """
+    input_file = tmp_path / "vasprun_bad_json.xml"
+    input_file.write_text("dummy")
+    
+    out_dir = tmp_path / "out"
+    out_dir.mkdir()
+
+    # Mock subprocess.run to return invalid JSON
+    fake_proc = MagicMock()
+    fake_proc.stdout = "This is not JSON { not: valid }"
+    fake_proc.stderr = ""
+    fake_proc.returncode = 0
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: fake_proc)
+
+    # Run parser and expect it to fail
+    with pytest.raises(json.JSONDecodeError):
+        run_parser(input_file, out_dir, force=True)
+
+    # Check that the error was logged
+    assert "Failed to decode JSON output" in caplog.text
+
+
+# --- [NEW TEST 3] ---
+@patch("subprocess.run")
+def test_run_parser_skips_when_unchanged(mock_subprocess_run, tmp_path):
+    """
+    Tests that run_parser (the core function) *itself*
+    correctly skips parsing when force=False and mtime is older.
+    (Moved from test_parse_fairtime.py)
+    """
+    input_file = tmp_path / "vasprun_unchanged.xml"
+    input_file.write_text("content")
+    file_mtime = input_file.stat().st_mtime
+    
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    # Create an existing parsed JSON with fair_parse_time >= file mtime
+    json_file = output_dir / f"fair_parsed_{input_file.stem}.json"
+    json_content = {"metadata": {"fair_parse_time": file_mtime + 10}}
+    json_file.write_text(json.dumps(json_content), encoding='utf-8')
+
+    # Call run_parser directly, with force=False
+    skipped = run_parser(input_file, output_dir, force=False)
+
+    # Assert that run_parser *returned True* (indicating a skip)
+    assert skipped
+    
+    # And double-check it didn't try to run nomad
+    mock_subprocess_run.assert_not_called()
+
+
+# --- [NEW TEST 4] ---
+@patch("subprocess.run")
+def test_run_parser_reparses_when_fair_parse_time_is_missing(mock_subprocess_run, tmp_path):
+    """
+    Tests that run_parser re-parses if the existing JSON
+    is missing the 'fair_parse_time' key.
+    (Moved from test_parse_fairtime.py)
+    """
+    input_file = tmp_path / "vasprun_no_time.xml"
+    input_file.write_text("content")
+    
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    # Create an existing parsed JSON *without* fair_parse_time
+    json_file = output_dir / f"fair_parsed_{input_file.stem}.json"
+    json_content = {"metadata": {"some_other_key": "value"}}
+    json_file.write_text(json.dumps(json_content), encoding='utf-8')
+
+    # Mock the subprocess to return minimal valid output
+    fake_proc = MagicMock()
+    fake_proc.stdout = json.dumps({"metadata": {}, "run": []})
+    fake_proc.stderr = ""
+    fake_proc.returncode = 0
+    mock_subprocess_run.return_value = fake_proc
+
+    # Call run_parser directly, with force=False
+    skipped = run_parser(input_file, output_dir, force=False)
+
+    # Assert that run_parser *did not skip*
+    assert not skipped
+    
+    # And check that it *did* call nomad
+    mock_subprocess_run.assert_called_once()
+
+
+# --- [NEW TEST 5] ---
+@patch("subprocess.run")
+def test_run_parser_reparses_when_file_is_newer(mock_subprocess_run, tmp_path):
+    """
+    Tests that run_parser re-parses if the input file
+    is newer than the existing JSON's 'fair_parse_time'.
+    """
+    input_file = tmp_path / "vasprun_newer.xml"
+    output_dir = tmp_path / "out"
+    output_dir.mkdir()
+
+    # Create an existing parsed JSON with an *old* timestamp
+    json_file = output_dir / f"fair_parsed_{input_file.stem}.json"
+    old_time = time.time() - 10
+    json_content = {"metadata": {"fair_parse_time": old_time}}
+    json_file.write_text(json.dumps(json_content), encoding='utf-8')
+
+    # Wait a tiny bit to ensure the new file's mtime is measurably newer
+    time.sleep(0.1)
+    input_file.write_text("new content")
+    assert input_file.stat().st_mtime > old_time
+
+    # Mock the subprocess to return minimal valid output
+    fake_proc = MagicMock()
+    fake_proc.stdout = json.dumps({"metadata": {}, "run": []})
+    fake_proc.stderr = ""
+    fake_proc.returncode = 0
+    mock_subprocess_run.return_value = fake_proc
+
+    # Call run_parser directly, with force=False
+    skipped = run_parser(input_file, output_dir, force=False)
+
+    # Assert that run_parser *did not skip*
+    assert not skipped
+    
+    # And check that it *did* call nomad
+    mock_subprocess_run.assert_called_once()
 
