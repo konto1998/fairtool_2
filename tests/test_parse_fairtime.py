@@ -3,7 +3,6 @@ import time
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-import pytest
 from typer.testing import CliRunner
 
 # Import the app for CLI runner tests
