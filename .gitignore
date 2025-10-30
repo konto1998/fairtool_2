@@ -4,3 +4,16 @@ __pycache__
 fair/
 fairtool/__pycache__/
 *.pyc
+*.pyo
+*.pyd
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+*.egg
+.env
+.venv
+env/
+venv/
+ENV/

@@ -34,10 +34,12 @@ app = typer.Typer(
     add_completion=True,
     no_args_is_help=True,
     callback=None,
+    suggest_commands=True,
+    rich_markup_mode="rich"
 )
 
 # --- Typer Command Definitions ---
-@app.command()
+@app.command(rich_help_panel="Information and Help", epilog="Made with :heart: in [blue]The Netherlands[/blue]")
 def about():
     """
     Information about the FAIR Tool and its creators.
@@ -110,9 +112,7 @@ def _find_calc_files(path: Path, recursive: bool = True, assume_yes: bool = Fals
         search_method = path.rglob if recursive else path.glob
         potential_files = (
             list(search_method("vasprun.xml")) +
-            list(search_method("OUTCAR")) +
-            list(search_method("*.XML")) +
-            list(search_method("*.xml"))
+            list(search_method("*vasprun.xml"))
         )
 
         # Filter out any files we might have double-counted (e.g., vasprun.xml is also *.xml)
@@ -195,7 +195,7 @@ def version_callback(value: bool):
 
 
 
-@app.command()
+@app.command(rich_help_panel="Processing")
 def parse(
     input_path: Annotated[Path, typer.Argument(
         help="Path to a calculation file or directory to search.",
@@ -267,11 +267,11 @@ def parse(
 
     log.info("--- Parsing Finished ---")
     log.info(f"[green]Success: {count_success}[/green]")
-    log.warning(f"[yellow]Skipped: {count_skip}[/yellow]")
+    log.info(f"[yellow]Skipped: {count_skip}[/yellow]")
     log.info(f"[red]Failed:  {count_fail}[/red]")
 
 
-@app.command()
+@app.command(rich_help_panel="Processing")
 def analyze(
     input_path: Annotated[Path, typer.Argument(
         help="Path to a parsed JSON file or a directory containing them (usually from 'fair parse').",
@@ -295,8 +295,7 @@ def analyze(
     )] = None,
 ):
     """
-    Perform analysis on parsed calculation data.
-    (Example: Calculate band gap, density of states features, etc.)
+    Perform analysis on parsed calculation data. Get derived properties.
     """
     log.info(f"Starting analysis process for: {input_path}")
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -320,7 +319,7 @@ def analyze(
     log.info("Analysis finished.")
 
 
-@app.command()
+@app.command(rich_help_panel="Processing")
 def summarize(
     input_path: Annotated[Path, typer.Argument(
         help="Path to parsed 'fair_parsed_*.json' data (file or directory).",
@@ -392,11 +391,11 @@ def summarize(
 
     log.info("--- Summarization Finished ---")
     log.info(f"[green]Success: {count_success}[/green]")
-    log.warning(f"[yellow]Skipped: {count_skip}[/yellow]")
-    log.error(f"[red]Failed:  {count_fail}[/red]")
+    log.info(f"[yellow]Skipped: {count_skip}[/yellow]")
+    log.info(f"[red]Failed:  {count_fail}[/red]")
 
 
-@app.command()
+@app.command(rich_help_panel="Processing")
 def export(
     input_path: Annotated[Path, typer.Argument(
         help="Path to parsed/analyzed data (JSON/directory) to export.",
@@ -435,7 +434,7 @@ def export(
     log.info("Export finished.")
 
 
-@app.command()
+@app.command(rich_help_panel="Processing")
 def visualize(
     input_path: Annotated[Path, typer.Argument(
         help="Path to parsed data (JSON/directory) containing structures, BZ, etc.",
@@ -455,8 +454,7 @@ def visualize(
     )] = False,
 ):
     """
-    Generate data for visualizations (structures, BZ, DOS, bands).
-    Optionally creates Markdown snippets for mkdocs embedding.
+    Generate a complete visualization of the processed data (metadata, structures, BZ, DOS, bands)
     """
 
     log.info(f"Starting visualization data generation for: {input_path}")
@@ -478,7 +476,7 @@ def visualize(
     log.info("Visualization data generation finished.")
 
 
-@app.command()
+@app.command(rich_help_panel="Automated Workflow")
 def all(
     input_path: Annotated[Path, typer.Argument(
         help="Path to a calculation file or directory to process.",
