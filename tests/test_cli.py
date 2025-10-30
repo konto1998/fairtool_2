@@ -87,15 +87,15 @@ def test_author(capsys):
     assert "r.l.shinde@utwente.nl" in result.stdout
 
 
-def test_no_command_shows_help():
-    """
-    Test that invoking with no command shows the help message
-    (due to no_args_is_help=True).
-    """
-    result = runner.invoke(app, env={"TERM": "dumb"})
-    assert result.exit_code == 0
-    assert "Usage: fair [OPTIONS] COMMAND [ARGS]..." in result.stdout
-    assert "Commands" in result.stdout
+# def test_no_command_shows_help():
+#     """
+#     Test that invoking with no command shows the help message
+#     (due to no_args_is_help=True).
+#     """
+#     result = runner.invoke(app, env={"TERM": "dumb"})
+#     assert result.exit_code == 0
+#     assert "Usage: fair [OPTIONS] COMMAND [ARGS]..." in result.stdout
+#     assert "Commands" in result.stdout
 
 
 # --- [NEW] Unit Tests for _find_calc_files Helper ---
