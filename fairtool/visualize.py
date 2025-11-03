@@ -719,6 +719,11 @@ def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False, build: 
                 log.error("`mkdocs` command not found. Is mkdocs installed in the active Python environment? Try `pip install mkdocs mkdocs-material mkdocs-macros-plugin`.")
             except Exception as e:
                 log.error(f"Error running mkdocs build: {e}", exc_info=True)
+            # If build was requested and this is not a dry_run, do not start
+            # the interactive dev server afterwards. Return so callers (CI
+            # scripts or users) can continue without hanging on a serve.
+            if not dry_run:
+                return
 
         # If dry_run is requested, return temp_dir so caller can inspect files
         if dry_run:

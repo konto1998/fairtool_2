@@ -484,31 +484,30 @@ def visualize(
 
     log.info("Visualization data generation finished.")
 
-    # If requested, launch mkdocs serve to view the documentation using package styling
+    # If requested, build-only mode: run mkdocs build and exit without serving.
+    # NOTE: `--build` now implies build-only by default (it will not start the
+    # dev server). If you want to both build and serve interactively, pass
+    # both `--build --serve` explicitly.
+    if build:
+        try:
+            build_dir = Path('site')
+            build_dir.mkdir(parents=True, exist_ok=True)
+            log.info("Building site into: %s", build_dir)
+            visualize_module.serve_docs(input_path, port=port, dry_run=False, build=True, build_dir=build_dir)
+            log.info("Build finished. Static site available at: %s", build_dir)
+            return
+        except Exception as e:
+            log.error(f"Failed to build site: {e}", exc_info=True)
+            raise typer.Exit(code=1)
+
+    # Otherwise, if serve requested, start the dev server.
     if serve:
         try:
-            # We want mkdocs to scan the user provided input_path for markdown files.
-            # If the user provided a single file, use its parent directory as docs root.
             docs_root = input_path if input_path.is_dir() else input_path.parent
-            # If the user requested a build, perform it as well. Building to a
-            # stable `site/` directory makes it easy to inspect or deploy the
-            # generated static site.
-            if build:
-                visualize_module.serve_docs(docs_root, port=port, build=True, build_dir=Path('site'))
-            else:
-                visualize_module.serve_docs(docs_root, port=port)
+            visualize_module.serve_docs(docs_root, port=port)
         except Exception as e:
             log.error(f"Failed to start localhost server: {e}", exc_info=False)
             raise typer.Exit(code=1)
-    else:
-        # If serve is False but build is requested, perform the build-only action
-        if build:
-            try:
-                docs_root = input_path if input_path.is_dir() else input_path.parent
-                visualize_module.serve_docs(docs_root, port=port, build=True, build_dir=Path('site'))
-            except Exception as e:
-                log.error(f"Failed to build site: {e}", exc_info=False)
-                raise typer.Exit(code=1)
 
 
 @app.command(rich_help_panel="Automated Workflow")

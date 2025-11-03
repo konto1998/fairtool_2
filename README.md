@@ -1,8 +1,7 @@
 
 # fairtool - Computational Materials Data Processing made FAIR
 
-<img width="800" alt="Fairtool" src="https://github.com/user-attachments/assets/9fec1e5e-a41a-47d8-8c71-9e05a588e110" />
-
+<img width="800" alt="Fairtool" src="./documentation/docs/assets/images/fairtool.png"/>
 
 FAIR Tool is a command-line interface for processing, analyzing, and visualizing computational materials data.
 It is designed to work with various calculation output files and provides a streamlined workflow.
