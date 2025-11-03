@@ -103,10 +103,4 @@
     | **Entry name** | Si VASP DFT SinglePoint simulation                |
     | **Mainfile** | band_si_vasprun.xml                 |
 
-- ## k-points and weights
-
-    | kx | ky | kz | Weight |
-    |----|----|----|--------|
-
-
 </div>
