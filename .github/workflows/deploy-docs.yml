@@ -24,20 +24,11 @@ jobs:
           python -m pip install --upgrade pip
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           pip install mkdocs mkdocs-material mkdocs-macros-plugin pyyaml
-          # Also install the package in editable mode so we can call fairtool.serve_docs
           pip install -e .
 
-      - name: Generate temporary mkdocs site (dry-run)
+      - name: Generate and build site (stable `site/` directory)
         run: |
-          python .github/scripts/generate_mkdocs.py
-
-      - name: Build site with mkdocs
-        run: |
-          MKCFG_FILE=.github/mkdocs_config_path.txt
-          if [ ! -f "${MKCFG_FILE}" ]; then echo "mkdocs config path file not found"; exit 1; fi
-          MKCFG=$(cat ${MKCFG_FILE})
-          echo "Using mkdocs config: ${MKCFG}"
-          mkdocs build -f "${MKCFG}"
+          python .github/scripts/generate_and_build_mkdocs.py
 
       - name: Deploy to GitHub Pages
         uses: peaceiris/actions-gh-pages@v4

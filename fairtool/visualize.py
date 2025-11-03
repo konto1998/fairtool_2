@@ -295,7 +295,7 @@ def run_visualization(input_path: Path, output_dir: Path, embed: bool):
     log.info("Visualization data generation process completed.")
 
 
-def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False):
+def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False, build: bool = False, build_dir: Optional[Path] = None):
     """
     Launch an mkdocs server that uses the package's documentation styling (mkdocs.yml,
     macros.py, theme overrides) while scanning `docs_path` for the markdown files.
@@ -697,6 +697,28 @@ def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False):
             except Exception:
                 # Don't fail if copying fails; warn instead
                 log.warning("Failed to copy packaged material overrides; theme customization may be missing.")
+
+        # If build=True, run mkdocs build using the temporary mkdocs config.
+        # The caller can optionally provide `build_dir` to control the
+        # output location; by default the site is written under the temp dir
+        # as '<temp_dir>/site'. We do not change cleanup semantics here: the
+        # temporary directory is removed at the end of this function unless
+        # `dry_run` is True.
+        if build:
+            target = Path(build_dir) if build_dir is not None else (temp_dir / 'site')
+            cmd = [sys.executable, '-m', 'mkdocs', 'build', '-f', str(temp_mkdocs), '-d', str(target)]
+            log.info(f"Running mkdocs build -> {target}")
+            try:
+                proc = subprocess.run(cmd, check=False)
+                if proc.returncode != 0:
+                    log.error(f"mkdocs build exited with return code {proc.returncode}")
+                    # Do not raise SystemExit here; allow caller to inspect temp dir
+                else:
+                    log.info(f"mkdocs build completed; site available at: {target}")
+            except FileNotFoundError:
+                log.error("`mkdocs` command not found. Is mkdocs installed in the active Python environment? Try `pip install mkdocs mkdocs-material mkdocs-macros-plugin`.")
+            except Exception as e:
+                log.error(f"Error running mkdocs build: {e}", exc_info=True)
 
         # If dry_run is requested, return temp_dir so caller can inspect files
         if dry_run:
