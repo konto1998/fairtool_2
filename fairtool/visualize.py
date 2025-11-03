@@ -705,7 +705,21 @@ def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False, build: 
         # temporary directory is removed at the end of this function unless
         # `dry_run` is True.
         if build:
-            target = Path(build_dir) if build_dir is not None else (temp_dir / 'site')
+            # Resolve build target to an absolute path. If the caller provided
+            # a relative path (e.g. 'site'), resolve it against the current
+            # working directory so MkDocs doesn't treat it relative to the
+            # temporary mkdocs.yml location and accidentally write into the
+            # temp dir.
+            if build_dir is not None:
+                bd = Path(build_dir)
+                if bd.is_absolute():
+                    target = bd
+                else:
+                    target = Path.cwd() / bd
+            else:
+                target = (temp_dir / 'site')
+
+            target = target.resolve()
             cmd = [sys.executable, '-m', 'mkdocs', 'build', '-f', str(temp_mkdocs), '-d', str(target)]
             log.info(f"Running mkdocs build -> {target}")
             try:
