@@ -17,3 +17,4 @@ pip-wheel-metadata/
 env/
 venv/
 ENV/
+.vscode/
