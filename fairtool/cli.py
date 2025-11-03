@@ -47,7 +47,7 @@ def about():
     console.print("")
     console.print("")
     console.rule()
-    console.print("FAIR Tool - Computational Materials Data Processing made FAIR", style="bold magenta")
+    console.print("FAIR Tool - Computational Materials Data made FAIR", style="bold magenta")
     console.print(r"""
   █████▒ ▄▄▄       ██▓ ██▀███  ▄▄▄█████▓ ▒█████   ▒█████   ██▓
 ▓██   ▒ ▒████▄    ▓██▒▓██ ▒ ██▒▓  ██▒ ▓▒▒██▒  ██▒▒██▒  ██▒▓██▒

@@ -349,27 +349,34 @@ def serve_docs(docs_path: Path, port: int = 8000):
         except Exception:
             log.warning("Failed to copy user docs into temporary docs directory; continuing with limited content.")
 
-        # Copy packaged static assets (stylesheets, js, assets) into temp_docs
+        # Copy packaged static assets (stylesheets, js, assets) into temp_docs.
+        # Some projects place these under `documentation/` and others under `documentation/docs/`.
+        # Try both locations so files like stylesheets/extra.css, js/structure.js and assets/logo.png
+        # are available to the dev server and avoid 404s.
+        candidate_roots = [packaged_docs, packaged_docs / "docs"]
         for static_name in ("stylesheets", "js", "assets"):
-            packaged_static = packaged_docs / static_name
-            if packaged_static.exists():
-                dst = temp_docs / static_name
-                try:
-                    shutil.copytree(packaged_static, dst)
-                except Exception:
-                    # Fallback: try copying individual files
+            copied = False
+            for root in candidate_roots:
+                src = root / static_name
+                if src.exists() and src.is_dir():
                     try:
-                        dst.mkdir(parents=True, exist_ok=True)
-                        for src in packaged_static.rglob("*"):
-                            rel = src.relative_to(packaged_static)
-                            dest = dst / rel
-                            if src.is_dir():
-                                dest.mkdir(parents=True, exist_ok=True)
-                            else:
-                                dest.parent.mkdir(parents=True, exist_ok=True)
-                                shutil.copy2(src, dest)
-                    except Exception:
-                        log.debug(f"Could not copy packaged static folder: {packaged_static}")
+                        shutil.copytree(src, temp_docs / static_name, dirs_exist_ok=True)
+                        log.debug(f"Copied static folder {src} -> {temp_docs / static_name}")
+                        copied = True
+                        break
+                    except Exception as e:
+                        log.debug(f"Could not copy packaged static folder {src}: {e}")
+            if not copied:
+                log.debug(f"No packaged static folder found for '{static_name}' in {candidate_roots}")
+
+        # Copy any `includes/` used by snippets (mkdocs docs/ often have an includes folder)
+        packaged_includes = packaged_docs / "docs" / "includes"
+        if packaged_includes.exists() and packaged_includes.is_dir():
+            try:
+                shutil.copytree(packaged_includes, temp_docs / "includes", dirs_exist_ok=True)
+                log.debug(f"Copied includes folder {packaged_includes} -> {temp_docs / 'includes'}")
+            except Exception as e:
+                log.debug(f"Could not copy includes folder {packaged_includes}: {e}")
 
         # Ensure there's an index.md so the site root renders instead of 404
         try:
@@ -397,6 +404,20 @@ def serve_docs(docs_path: Path, port: int = 8000):
             # Insert at top
             content = f"docs_dir: '{str(temp_docs)}'\n" + content
 
+        # Override site_url and directory URL handling to ensure dev server serves assets from root
+        # and doesn't prepend the packaged site_url (which was set to /fairtool/).
+        # Insert or replace site_url and use_directory_urls settings.
+        if re.search(r"^\s*site_url\s*:\s*.+$", content, flags=re.MULTILINE):
+            content = re.sub(r"^\s*site_url\s*:\s*.+$", f"site_url: 'http://127.0.0.1:{int(port)}'", content, flags=re.MULTILINE)
+        else:
+            # insert after docs_dir line
+            content = content.replace(f"docs_dir: '{str(temp_docs)}'\n", f"docs_dir: '{str(temp_docs)}'\nsite_url: 'http://127.0.0.1:{int(port)}'\n")
+
+        if re.search(r"^\s*use_directory_urls\s*:\s*.+$", content, flags=re.MULTILINE):
+            content = re.sub(r"^\s*use_directory_urls\s*:\s*.+$", "use_directory_urls: false", content, flags=re.MULTILINE)
+        else:
+            content = content.replace(f"site_url: 'http://127.0.0.1:{int(port)}'\n", f"site_url: 'http://127.0.0.1:{int(port)}'\nuse_directory_urls: false\n")
+
         # Some mkdocs plugins referenced in the packaged mkdocs.yml may not be
         # installed in the user's environment (for example: include_dir_to_nav).
         # If 'include_dir_to_nav' is referenced we try to import it — if it's
@@ -412,55 +433,154 @@ def serve_docs(docs_path: Path, port: int = 8000):
                 # Remove lines like '- include_dir_to_nav' or '  include_dir_to_nav: ...'
                 content = re.sub(r"(?m)^[ \t]*-?[ \t]*include_dir_to_nav(?::.*)?$\n(?:^[ \t]+[^\n]*$\n)*", "", content)
 
-        # Build a single top-level nav group using the provided docs path's basename
-        # and create per-directory subgroups that list human-friendly page titles
-        # (so raw filenames are not shown in the navigation).
+        # Build a nav that keeps the top-level horizontal navigation small while
+        # exposing directory names in the vertical sidebar. We create a single
+        # parent -> root grouping (so horizontal nav shows only Home + parent)
+        # and then list directories under that root. For page labels we try to
+        # extract the first H1 heading from the markdown; fall back to a
+        # humanized filename if none is found. This avoids showing raw filenames
+        # like 'vasprun' in the nav.
         try:
-            example_dirs = sorted([p for p in temp_docs.iterdir() if p.is_dir()])
-            if example_dirs:
-                nav_match = re.search(r"(?m)^nav:\s*$", content)
-                if nav_match:
-                    # humanize function for page labels
-                    def humanize(stem: str) -> str:
-                        # strip common prefixes
-                        stem = re.sub(r'^(fair_summarized_|fair_parsed_|fair-)', '', stem)
-                        stem = stem.replace('_', ' ').replace('-', ' ')
-                        return stem.strip().replace('.md','').title()
+            def humanize(stem: str) -> str:
+                stem = re.sub(r'^(fair_summarized_|fair_parsed_|fair-)', '', stem)
+                stem = stem.replace('_', ' ').replace('-', ' ')
+                return stem.strip().replace('.md','').title()
 
-                    parent_label = Path(docs_path).parent.name if Path(docs_path).parent.name else Path(docs_path).name
-                    root_label = Path(docs_path).name or 'Docs'
+            def first_h1_title(p: Path) -> str:
+                try:
+                    with open(p, 'r', encoding='utf-8') as fh:
+                        for line in fh:
+                            line = line.strip()
+                            if line.startswith('#'):
+                                # remove leading hashes and whitespace
+                                return line.lstrip('#').strip()
+                except Exception:
+                    pass
+                return humanize(p.stem)
 
-                    nav_block = "\n"
+            nav_lines = []
+            nav_lines.append("nav:")
+            # Ensure single Home entry
+            nav_lines.append("  - Home: index.md")
 
-                    # Ensure 'Home: index.md' is the first entry under nav
-                    if not re.search(r"(?m)^\s*-\s*Home\s*:\s*index\.md\s*$", content):
-                        nav_block += "  - Home: index.md\n"
+            parent_label = Path(docs_path).parent.name or Path(docs_path).name or 'Docs'
+            root_label = Path(docs_path).name or 'Docs'
+            nav_lines.append(f"  - {parent_label}:")
+            nav_lines.append(f"    - {root_label}:")
 
-                    # Top-level parent (e.g., 'tests') -> child root (e.g., 'VASP')
-                    nav_block += f"  - {parent_label}:\n"
-                    nav_block += f"    - {root_label}:\n"
+            # helper: find if a directory contains any markdown in its subtree
+            def has_markdown(dirpath: Path) -> bool:
+                for _ in dirpath.rglob('*.md'):
+                    return True
+                return False
 
-                    for d in example_dirs:
-                        md_files = sorted([p for p in d.rglob("*.md")])
-                        if not md_files:
-                            continue
-                        # If there's only one markdown file in the directory, link the
-                        # directory name directly to that file for cleaner UX.
-                        if len(md_files) == 1:
-                            rel = str(md_files[0].relative_to(temp_docs))
-                            title = humanize(md_files[0].stem)
-                            nav_block += f"      - {d.name}: {rel}\n"
-                        else:
-                            nav_block += f"      - {d.name}:\n"
-                            # add each markdown file inside the directory as a nested nav entry
+            # helper: get first markdown in subtree (excluding index.md)
+            def first_markdown_in_subtree(dirpath: Path) -> Path:
+                for p in sorted(dirpath.rglob('*.md')):
+                    if p.name == 'index.md':
+                        continue
+                    return p
+                return None
+
+            # ensure index only for dirs that have markdown in subtree
+            def ensure_index_for_dir(dirpath: Path) -> str:
+                # skip if no markdown anywhere under dir
+                if not has_markdown(dirpath):
+                    return ''
+                idx = dirpath / 'index.md'
+                if idx.exists():
+                    return str(idx.relative_to(temp_docs))
+
+                # create index.md summarizing pages and subfolders
+                md_files = sorted([p for p in dirpath.glob('*.md') if p.name != 'index.md'])
+                subdirs = sorted([sd for sd in dirpath.iterdir() if sd.is_dir() and has_markdown(sd)])
+                try:
+                    with open(idx, 'w', encoding='utf-8') as fh:
+                        fh.write(f"# {dirpath.name}\n\n")
+                        fh.write(f"This page is the index for the `{dirpath.name}` folder.\n\n")
+                        if md_files:
+                            fh.write("## Pages in this folder\n\n")
                             for p in md_files:
-                                rel = str(p.relative_to(temp_docs))
-                                title = humanize(p.stem)
-                                nav_block += f"        - {title}: {rel}\n"
+                                title = first_h1_title(p)
+                                rel = p.relative_to(temp_docs)
+                                fh.write(f"- [{title}]({rel})\n")
+                            fh.write("\n")
+                        if subdirs:
+                            fh.write("## Subfolders\n\n")
+                            for sd in subdirs:
+                                rel = (sd / 'index.md').relative_to(temp_docs)
+                                fh.write(f"- [{sd.name}]({rel})\n")
+                except Exception:
+                    # fallback: if create failed, try linking first md
+                    f = first_markdown_in_subtree(dirpath)
+                    return str(f.relative_to(temp_docs)) if f else ''
+                return str(idx.relative_to(temp_docs))
 
-                    # Insert nav_block immediately after the 'nav:' line
-                    insert_pos = nav_match.end()
-                    content = content[:insert_pos] + nav_block + content[insert_pos:]
+            # recursive nav builder
+            def build_dir_nav(dirpath: Path, indent: int = 6):
+                lines = []
+                if not has_markdown(dirpath):
+                    return lines
+
+                # count markdown in subtree excluding index.md
+                md_in_subtree = [p for p in dirpath.rglob('*.md') if p.name != 'index.md']
+                # find immediate child dirs that have markdown
+                child_dirs = sorted([sd for sd in dirpath.iterdir() if sd.is_dir() and has_markdown(sd)])
+
+                # if exactly one md in entire subtree and no child dirs with markdown -> link directly
+                if len(md_in_subtree) == 1 and not child_dirs:
+                    only = md_in_subtree[0]
+                    rel = str(only.relative_to(temp_docs))
+                    lines.append(' ' * indent + f"- {dirpath.name}: {rel}")
+                    return lines
+
+                # otherwise create a directory node linking to index (overview)
+                idx_rel = ensure_index_for_dir(dirpath)
+                lines.append(' ' * indent + f"- {dirpath.name}:")
+                if idx_rel:
+                    lines.append(' ' * (indent + 2) + f"- {dirpath.name}: {idx_rel}")
+
+                # add direct pages
+                direct_pages = sorted([p for p in dirpath.glob('*.md') if p.name != 'index.md'])
+                for p in direct_pages:
+                    rel = str(p.relative_to(temp_docs))
+                    title = first_h1_title(p)
+                    lines.append(' ' * (indent + 2) + f"- {title}: {rel}")
+
+                # recurse into child dirs
+                for sd in child_dirs:
+                    sub_lines = build_dir_nav(sd, indent=indent + 2)
+                    # indent and convert leading '-' lines to mkdocs style with proper spaces
+                    for l in sub_lines:
+                        # ensure lines already include '-' and proper spacing
+                        lines.append(l)
+                return lines
+
+            # build nav lines for each top-level directory under temp_docs
+            top_dirs = sorted([p for p in temp_docs.iterdir() if p.is_dir() and has_markdown(p)])
+            for d in top_dirs:
+                if d.name in ("assets","stylesheets","js","includes","material"):
+                    continue
+                dir_nav_lines = build_dir_nav(d, indent=6)
+                for ln in dir_nav_lines:
+                    # strip leading '-' style and convert to mkdocs YAML list style
+                    # our lines already match "      - Name: path" pattern
+                    nav_lines.append('  ' + ln)
+
+            generated_nav = "\n".join(nav_lines) + "\n"
+
+            # Replace existing nav block entirely with our generated nav
+            nav_match = re.search(r"(?m)^nav:\s*$", content)
+            if nav_match:
+                remainder = content[nav_match.end():]
+                m = re.search(r"(?m)^[^ \t-][^:]*:\s*", remainder)
+                if m:
+                    nav_end = nav_match.end() + m.start()
+                else:
+                    nav_end = len(content)
+                content = content[:nav_match.start()] + generated_nav + content[nav_end:]
+            else:
+                content = generated_nav + content
         except Exception:
             log.debug("Failed to auto-generate per-directory nav block; continuing without it.")
 
