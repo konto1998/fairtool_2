@@ -71,11 +71,11 @@ theme:
       toggle:
         icon: material/weather-night
         name: Switch to light mode
-      primary: teal
+      primary: green
       accent: deep orange
     - media: "(prefers-color-scheme: light)"
       scheme: default
-      primary: teal
+      primary: green
       accent: deep orange
       toggle:
         icon: material/weather-sunny
@@ -184,4 +184,7 @@ not_in_nav: |
 
 # Page tree
 nav:
-  - Home: index.md
+  - Home: README.md
+  - Getting started:
+    - Installation: getting-started.md
+    - License: license.md

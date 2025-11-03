@@ -205,7 +205,7 @@ def run_visualization(input_path: Path, output_dir: Path, embed: bool):
         log.info(f"Searching for parsed JSON files (*_parsed.json) in: {input_path}")
         files_to_process = sorted(list(input_path.rglob("*_parsed.json")))
         if not files_to_process:
-             log.warning(f"No '*_parsed.json' files found in {input_path}")
+            #  log.warning(f"No '*_parsed.json' files found in {input_path}")
              return
     else:
         log.error(f"Input path must be a JSON file or a directory containing them: {input_path}")
@@ -378,10 +378,36 @@ def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False):
             except Exception as e:
                 log.debug(f"Could not copy includes folder {packaged_includes}: {e}")
 
+        # If the packaged docs include a homepage (README.md or index.md), copy
+        # that into the temporary docs root so the packaged theme overrides
+        # (which often target the site homepage) are applied. Do not overwrite
+        # any user-provided file.
+        packaged_docs_docs = packaged_docs / "docs"
+        for candidate in ("README.md", "index.md"):
+            src_home = packaged_docs_docs / candidate
+            if src_home.exists() and not (temp_docs / candidate).exists():
+                try:
+                    shutil.copy2(src_home, temp_docs / candidate)
+                    log.debug(f"Copied packaged homepage {src_home} -> {temp_docs / candidate}")
+                    # Stop after copying the first available candidate
+                    break
+                except Exception:
+                    log.debug(f"Failed to copy packaged homepage {src_home}")
+
         # Ensure there's an index.md so the site root renders instead of 404
         try:
+            # MkDocs expects an `index.md` at the site root when a nav entry
+            # references 'index.md'. Older projects sometimes use README.md;
+            # prefer index.md and copy README.md -> index.md when present so
+            # the nav and files stay in sync and mkdocs doesn't warn.
             index_file = temp_docs / "index.md"
-            if not index_file.exists():
+            readme_file = temp_docs / "README.md"
+
+            # Only create a generated index.md if neither README.md nor
+            # index.md already exist. If README.md is present, prefer it as
+            # the site homepage so packaged theme overrides targeting the
+            # homepage can be applied.
+            if not index_file.exists() and not readme_file.exists():
                 # Build an index that shows the output of `tree` in a bash code block
                 all_md = sorted([p for p in temp_docs.rglob("*.md")])
 
@@ -413,7 +439,6 @@ def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False):
 
                     # Stats
                     idx.write("## Summary\n\n")
-                    idx.write(f"- Total files: **{total_files}**\n")
                     idx.write(f"- Total folders: **{total_dirs}**\n")
                     idx.write(f"- Markdown pages: **{total_md}**\n\n")
 
@@ -544,7 +569,15 @@ def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False):
 
             return entries
 
-        final_nav = [{'Home': 'index.md'}]
+        # Pick a sensible top-level home file: prefer index.md, fall back to README.md
+        if (temp_docs / 'index.md').exists():
+            home_entry = 'index.md'
+        elif (temp_docs / 'README.md').exists():
+            home_entry = 'README.md'
+        else:
+            home_entry = 'index.md'
+
+        final_nav = [{'Home': home_entry}]
         docs_label = docs_path.name
 
         # Build docs nav object. We do NOT include individual file names in the
@@ -582,7 +615,19 @@ def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False):
                         new_plugins.append(p)
                     cfg['plugins'] = new_plugins
 
-                cfg['nav'] = final_nav
+                    # Ensure theme custom_dir points to the material theme root
+                    # (the packaged layout uses material/overrides as a subfolder
+                    #  containing the Jinja2 overrides). MkDocs expects
+                    #  custom_dir to point to the theme root directory; the
+                    #  overrides are located under <custom_dir>/overrides.
+                    theme = cfg.get('theme') or {}
+                    if isinstance(theme, dict):
+                        cd = theme.get('custom_dir')
+                        if isinstance(cd, str) and cd.endswith('overrides'):
+                            # move up one level so MkDocs sees custom_dir as 'material'
+                            cfg['theme']['custom_dir'] = cd.rsplit('/', 1)[0]
+
+                    cfg['nav'] = final_nav
                 content = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True, width=10000)
             else:
                 nav_yaml = yaml.dump(final_nav, allow_unicode=True, sort_keys=False, width=10000)
@@ -608,8 +653,28 @@ def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False):
                     content = ''.join(new_lines)
                 else:
                     content = content + '\nnav:\n' + nav_yaml
+                    # If the packaged config used a 'custom_dir' that pointed
+                    # directly at an 'overrides' subfolder (e.g. 'material/overrides')
+                    # many projects expect the theme root to be the parent
+                    # directory. When we copy the entire `material` folder into
+                    # the temp site, adjust the textual config so MkDocs will
+                    # find the overrides under <custom_dir>/overrides.
+                    try:
+                        content = re.sub(r"(?m)^(\s*custom_dir\s*:\s*)(.+?/)?overrides\s*$", r"\1material", content)
+                    except Exception:
+                        pass
         except Exception:
             log.debug("Failed to auto-generate per-directory nav block; continuing without it.")
+
+        # Final textual normalization: ensure custom_dir does not point
+        # directly at an 'overrides' subfolder (e.g. 'material/overrides').
+        # MkDocs expects custom_dir to be the theme root; the Jinja2
+        # overrides live under <custom_dir>/overrides. Normalize to
+        # 'material' so our copied theme folder is discovered.
+        try:
+            content = re.sub(r"(?m)^(\s*custom_dir\s*:\s*)(.+?/)?overrides\s*$", r"\1material", content)
+        except Exception:
+            pass
 
         temp_mkdocs.write_text(content, encoding="utf-8")
 
