@@ -452,6 +452,14 @@ def visualize(
         "--embed", "-e",
         help="Generate Markdown snippets for embedding visualizations in mkdocs.",
     )] = False,
+    serve: Annotated[bool, typer.Option(
+        "--serve/--no-serve",
+        help="Launch an mkdocs dev server to view the generated Markdown/embedded visualizations.",
+    )] = True,
+    port: Annotated[int, typer.Option(
+        "--port", "-p",
+        help="Port number for mkdocs dev server when using --serve.",
+    )] = 8000,
 ):
     """
     Generate a complete visualization of the processed data (metadata, structures, BZ, DOS, bands)
@@ -474,6 +482,17 @@ def visualize(
         raise typer.Exit(code=1)
 
     log.info("Visualization data generation finished.")
+
+    # If requested, launch mkdocs serve to view the documentation using package styling
+    if serve:
+        try:
+            # We want mkdocs to scan the user provided input_path for markdown files.
+            # If the user provided a single file, use its parent directory as docs root.
+            docs_root = input_path if input_path.is_dir() else input_path.parent
+            visualize_module.serve_docs(docs_root, port=port)
+        except Exception as e:
+            log.error(f"Failed to start mkdocs server: {e}", exc_info=False)
+            raise typer.Exit(code=1)
 
 
 @app.command(rich_help_panel="Automated Workflow")
