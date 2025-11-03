@@ -437,7 +437,7 @@ def export(
 @app.command(rich_help_panel="Processing")
 def visualize(
     input_path: Annotated[Path, typer.Argument(
-        help="Path to parsed data (JSON/directory) containing structures, BZ, etc.",
+        help="Path to parsed data (Markdown/directory) containing structures, and other summary data.",
          exists=True,
         file_okay=True,
         dir_okay=True,
@@ -454,11 +454,15 @@ def visualize(
     )] = False,
     serve: Annotated[bool, typer.Option(
         "--serve/--no-serve",
-        help="Launch an mkdocs dev server to view the generated Markdown/embedded visualizations.",
+        help="Launch an localhost dev server to view the generated Markdown/embedded visualizations.",
     )] = True,
+    build: Annotated[bool, typer.Option(
+        "--build",
+        help="Build the website locally and output the static site to ./site.",
+    )] = False,
     port: Annotated[int, typer.Option(
         "--port", "-p",
-        help="Port number for mkdocs dev server when using --serve.",
+        help="Port number for localhost dev server when using --serve.",
     )] = 8000,
 ):
     """
@@ -470,9 +474,6 @@ def visualize(
     log.info(f"Visualization data will be saved to: {output_dir}")
     if embed:
         log.info("Will generate Markdown embedding snippets.")
-
-    # TODO: Assumes run_visualization can handle a directory.
-    # If not, add _find_json_files and loop like in summarize.
 
     try:
         log.info("Visualization data generation started.")
@@ -489,10 +490,25 @@ def visualize(
             # We want mkdocs to scan the user provided input_path for markdown files.
             # If the user provided a single file, use its parent directory as docs root.
             docs_root = input_path if input_path.is_dir() else input_path.parent
-            visualize_module.serve_docs(docs_root, port=port)
+            # If the user requested a build, perform it as well. Building to a
+            # stable `site/` directory makes it easy to inspect or deploy the
+            # generated static site.
+            if build:
+                visualize_module.serve_docs(docs_root, port=port, build=True, build_dir=Path('site'))
+            else:
+                visualize_module.serve_docs(docs_root, port=port)
         except Exception as e:
-            log.error(f"Failed to start mkdocs server: {e}", exc_info=False)
+            log.error(f"Failed to start localhost server: {e}", exc_info=False)
             raise typer.Exit(code=1)
+    else:
+        # If serve is False but build is requested, perform the build-only action
+        if build:
+            try:
+                docs_root = input_path if input_path.is_dir() else input_path.parent
+                visualize_module.serve_docs(docs_root, port=port, build=True, build_dir=Path('site'))
+            except Exception as e:
+                log.error(f"Failed to build site: {e}", exc_info=False)
+                raise typer.Exit(code=1)
 
 
 @app.command(rich_help_panel="Automated Workflow")
