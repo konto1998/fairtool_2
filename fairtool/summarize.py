@@ -278,7 +278,7 @@ def _generate_material_composition_table(context: Dict[str, Any]) -> str:
         return ""
         
     header = [
-        f"- ## Material Composition - {t_original_data.get('label', 'Original Material')}\n",
+        f"- ### Material Composition - {t_original_data.get('label', 'Original Material')}\n",
         "    | Property                     | Value                       |",
         "    |------------------------------|-----------------------------|",
     ]
@@ -310,7 +310,7 @@ def _generate_lattice_table(context: Dict[str, Any], cell_key: str, label_key: s
     if not (rows_const or rows_angles or rows_quant):
         return ""
 
-    table = [f"- ## Lattice ({label_key})\n"]
+    table = [f"- ### Lattice ({label_key})\n"]
     if rows_const:
         table.extend([
             "    | Lattice constant | Value     | Units |",
@@ -339,7 +339,6 @@ def _generate_symmetry_table(context: Dict[str, Any]) -> str:
     rows = []
     _add_row(rows, "Crystal system", t_cell_data_sym.get("crystal_system"))
     _add_row(rows, "Bravais lattice", t_cell_data_sym.get("bravais_lattice"))
-    _add_row(rows, "Strukturbericht designation", t_cell_data_sym.get("strukturbericht_designation"), bold_value=False) # Italic
     _add_row(rows, "Space group symbol", t_cell_data_sym.get("space_group_symbol"))
     _add_row(rows, "Space group number", t_cell_data_sym.get("space_group_number"))
     _add_row(rows, "Point group", t_cell_data_sym.get("point_group"))
@@ -353,7 +352,7 @@ def _generate_symmetry_table(context: Dict[str, Any]) -> str:
 
     label = t_cell_data.get('label', 'unavailable')
     header = [
-        f"- ## Symmetry ({label})\n",
+        f"- ### Symmetry ({label})\n",
         "    | Property                       | Value            |",
         "    |---------------------------------|------------------|",
     ]
@@ -375,7 +374,7 @@ def _generate_kpoints_table(context: Dict[str, Any]) -> str:
         return ""
 
     header = [
-        "- ## K points information\n",
+        "- ### K points information\n",
         "    | Property               | Value |",
         "    |------------------------|--------|",
     ]
@@ -413,7 +412,7 @@ def _generate_metadata_table(context: Dict[str, Any]) -> str:
         return ""
 
     header = [
-        "- ## Calculation Metadata\n",
+        "- ### Calculation Metadata\n",
         "    | Property                   | Value                                                      |",
         "    |----------------------------|------------------------------------------------------------|",
     ]
@@ -460,7 +459,7 @@ def _generate_final_energies_table(context: Dict[str, Any]) -> str:
             rows.append(f"    | {label} | {value:.6f} |")
 
     table = [
-        "- ## Final Calculation Energies\n",
+        "- ### Final Calculation Energies\n",
         "    | Energy | Value (eV) |",
         "    |---|---|",
     ]
@@ -488,7 +487,7 @@ def _generate_scf_energies_table(context: Dict[str, Any]) -> str:
         rows.append(f"    | {step} | {total} | {free} | {total_t0} |")
 
     table = [
-        "- ## SCF Iteration Energies\n",
+        "- ### SCF Iteration Energies\n",
         "    | Step | Total Energy (eV) | Free Energy (eV) | Total Energy (T=0) (eV) |",
         "    |:---|---:|---:|---:|",
     ]
@@ -519,7 +518,7 @@ def generate_markdown(context: Dict[str, Any]) -> str:
     # --- Main Markdown f-string ---
     # This is now much cleaner, reading directly from the context.
     markdown_content = f"""
-# {metadata.get('entry_name', 'FAIR Parsed Report')}
+# __{metadata.get('entry_name', 'FAIR Parsed Report')}__
 
 <div class="grid cards" markdown>
 
@@ -528,7 +527,9 @@ def generate_markdown(context: Dict[str, Any]) -> str:
 {material_table}
 
 </div>
-    
+
+## __Structural information__
+
 <div class="grid cards" markdown>
 
 {lattice_original_table}
@@ -538,8 +539,20 @@ def generate_markdown(context: Dict[str, Any]) -> str:
 {symmetry_table}
 
 {kpoints_table}
-    
+
+</div>
+
+## __Metadata__
+
+<div class="grid cards" markdown>
+
 {metadata_table}
+
+</div>
+
+## __Energies__
+
+<div class="grid cards" markdown>
 
 {final_energies_table}
 

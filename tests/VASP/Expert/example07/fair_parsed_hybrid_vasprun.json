@@ -2379,15 +2379,6 @@
           ]
         },
         {
-          "name": "Zn",
-          "chemical_symbols": [
-            "Zn"
-          ],
-          "concentration": [
-            1.0
-          ]
-        },
-        {
           "name": "C",
           "chemical_symbols": [
             "C"
@@ -2404,10 +2395,19 @@
           "concentration": [
             1.0
           ]
+        },
+        {
+          "name": "Zn",
+          "chemical_symbols": [
+            "Zn"
+          ],
+          "concentration": [
+            1.0
+          ]
         }
       ]
     },
-    "fair_parse_time": 1762266347.421558
+    "fair_parse_time": 1762289318.9420118
   },
   "results": {
     "material": {

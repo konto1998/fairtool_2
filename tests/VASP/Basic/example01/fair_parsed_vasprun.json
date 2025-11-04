@@ -1906,15 +1906,6 @@
       "structure_features": [],
       "species": [
         {
-          "name": "Hg",
-          "chemical_symbols": [
-            "Hg"
-          ],
-          "concentration": [
-            1.0
-          ]
-        },
-        {
           "name": "Ag",
           "chemical_symbols": [
             "Ag"
@@ -1924,9 +1915,9 @@
           ]
         },
         {
-          "name": "Cs",
+          "name": "Hg",
           "chemical_symbols": [
-            "Cs"
+            "Hg"
           ],
           "concentration": [
             1.0
@@ -1940,10 +1931,19 @@
           "concentration": [
             1.0
           ]
+        },
+        {
+          "name": "Cs",
+          "chemical_symbols": [
+            "Cs"
+          ],
+          "concentration": [
+            1.0
+          ]
         }
       ]
     },
-    "fair_parse_time": 1762266259.054553
+    "fair_parse_time": 1762289271.7292674
   },
   "results": {
     "material": {

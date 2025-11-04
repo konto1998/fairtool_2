@@ -1,11 +1,11 @@
 
-# Cs2AgHgCl6 VASP DFT SinglePoint simulation
+# __Cs2AgHgCl6 VASP DFT SinglePoint simulation__
 
 <div class="grid cards" markdown>
 
 {{ structure_viewer("fair-structure.json") }}
 
-- ## Material Composition - original
+- ### Material Composition - original
 
     | Property                     | Value                       |
     |------------------------------|-----------------------------|
@@ -18,10 +18,12 @@
     | Dimensionality | **3D** |
 
 </div>
-    
+
+## __Structural information__
+
 <div class="grid cards" markdown>
 
-- ## Lattice (original)
+- ### Lattice (original)
 
     | Lattice constant | Value     | Units |
     |------------------|-----------|-------|
@@ -41,7 +43,7 @@
     | Mass density | **4.730e-27** | kg / Å³ |
     | Atomic density | **0.036** | Å⁻³ |
 
-- ## Lattice (conventional cell)
+- ### Lattice (conventional cell)
 
     | Lattice constant | Value     | Units |
     |------------------|-----------|-------|
@@ -61,7 +63,7 @@
     | Mass density | **4.730e-27** | kg / Å³ |
     | Atomic density | **0.036** | Å⁻³ |
 
-- ## Symmetry (conventional cell)
+- ### Symmetry (conventional cell)
 
     | Property                       | Value            |
     |---------------------------------|------------------|
@@ -73,7 +75,7 @@
     | Hall number | **523** |
     | Hall symbol | **-F 4 2 3** |
 
-- ## K points information
+- ### K points information
 
     | Property               | Value |
     |------------------------|--------|
@@ -81,8 +83,14 @@
     | Sampling method | **Gamma-centered** |
     | Number of points | **64** |
     | Grid | **[4, 4, 4]** |
-    
-- ## Calculation Metadata
+
+</div>
+
+## __Metadata__
+
+<div class="grid cards" markdown>
+
+- ### Calculation Metadata
 
     | Property                   | Value                                                      |
     |----------------------------|------------------------------------------------------------|
@@ -100,7 +108,13 @@
     | **Entry name** | Cs2AgHgCl6 VASP DFT SinglePoint simulation |
     | **Mainfile** | vasprun.xml |
 
-- ## Final Calculation Energies
+</div>
+
+## __Energies__
+
+<div class="grid cards" markdown>
+
+- ### Final Calculation Energies
 
     | Energy | Value (eV) |
     |---|---|
@@ -109,7 +123,7 @@
     | **Total (T=0)** | -29.959803 |
     | **Band Gap** | 7.225400 |
 
-- ## SCF Iteration Energies
+- ### SCF Iteration Energies
 
     | Step | Total Energy (eV) | Free Energy (eV) | Total Energy (T=0) (eV) |
     |:---|---:|---:|---:|
