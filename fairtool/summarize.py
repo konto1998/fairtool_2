@@ -237,6 +237,51 @@ def extract_context(data: Dict[str, Any]) -> Dict[str, Any]:
         })
     context['scf_table_data'] = scf_table_data
 
+
+    # --- **NEW:** Extract DOS Data ---
+    log.info("Extracting DOS data for charting.")
+    dos_chart_data = []
+    is_spin_polarized = False
+    try:
+        dos_electronic = calc.get("dos_electronic", [])
+        if dos_electronic:
+            dos_data = dos_electronic[0]
+            energies_j = np.array(dos_data.get("energies", []))
+            fermi_j = dos_data.get("energy_fermi")
+            dos_total = dos_data.get("total", []) # List of value objects
+            
+            if energies_j.any() and fermi_j is not None and dos_total:
+                # Convert energies to eV and shift relative to Fermi
+                energies_ev = (energies_j - fermi_j) / J_PER_EV
+                
+                is_spin_polarized = dos_data.get("spin_polarized", False)
+                
+                if is_spin_polarized and len(dos_total) >= 2:
+                    dos_up = np.array(dos_total[0].get("value", []))
+                    dos_down = np.array(dos_total[1].get("value", [])) * -1 # Negate for plotting
+                    
+                    if len(energies_ev) == len(dos_up) == len(dos_down):
+                        for e, up, down in zip(energies_ev, dos_up, dos_down):
+                            dos_chart_data.append({'energy_ev': e, 'dos_up': up, 'dos_down': down})
+                    else:
+                        log.warning("DOS energy and value array lengths mismatch (spin-polarized).")
+                
+                elif not is_spin_polarized and len(dos_total) >= 1:
+                    dos = np.array(dos_total[0].get("value", []))
+                    if len(energies_ev) == len(dos):
+                         for e, d in zip(energies_ev, dos):
+                            dos_chart_data.append({'energy_ev': e, 'dos': d})
+                    else:
+                        log.warning("DOS energy and value array lengths mismatch (non-spin-polarized).")
+            else:
+                log.info("No complete DOS data found (missing energies, fermi, or total).")
+    except Exception as e:
+        log.error(f"Failed to process DOS data: {e}", exc_info=True)
+
+    context['dos_chart_data'] = dos_chart_data
+    context['dos_is_spin_polarized'] = is_spin_polarized
+    log.info(f"Finished extracting DOS data. Found {len(dos_chart_data)} points.")
+
     return context
 
 # --- New Markdown Table Generator Functions ---
@@ -561,6 +606,78 @@ def _generate_scf_chart_html(context: Dict[str, Any]) -> str:
 """
     return html_js_block
 
+def _generate_dos_chart_html(context: Dict[str, Any]) -> str:
+    """
+    Generates the HTML and JavaScript block for the DOS Google Chart.
+    """
+    dos_chart_data = context.get('dos_chart_data', [])
+    if not dos_chart_data:
+        log.info("No DOS chart data found, skipping chart generation.")
+        return ""
+
+    is_spin_polarized = context.get('dos_is_spin_polarized', False)
+    dos_data_json = json.dumps(dos_chart_data)
+
+    # We must be careful with indentation in the JS block.
+    html_js_block = f"""
+<div id="dos_chart_div" style="width: 100%; height: 500px; margin-bottom: 20px;"></div>
+<script type="text/javascript">
+  // We assume google.charts.load is already called by the SCF chart
+  google.charts.setOnLoadCallback(drawDosChart);
+
+  function drawDosChart() {{
+    // Parse the JSON data passed from Python
+    const dosData = JSON.parse('{dos_data_json}');
+    const isSpinPolarized = {str(is_spin_polarized).lower()};
+
+    var data = new google.visualization.DataTable();
+    data.addColumn('number', 'Energy (eV vs Fermi)');
+    
+    var rows;
+    
+    if (isSpinPolarized) {{
+      data.addColumn('number', 'Spin Up');
+      data.addColumn('number', 'Spin Down');
+      rows = dosData.map(item => [
+        item.energy_ev, 
+        item.dos_up, 
+        item.dos_down // Already negative
+      ]);
+    }} else {{
+      data.addColumn('number', 'DOS');
+      rows = dosData.map(item => [
+        item.energy_ev, 
+        item.dos
+      ]);
+    }}
+
+    data.addRows(rows);
+
+    var options = {{
+      title: '',
+      legend: {{ position: 'bottom' }},
+      hAxis: {{
+        title: 'Energy (eV) [Fermi Energy at 0 eV]'
+      }},
+      vAxis: {{
+        title: 'DOS (States/eV)'
+      }},
+      // This allows the chart to be responsive
+      chartArea: {{'width': '85%', 'height': '75%'}},
+      // Ensure spin down is a different color
+      series: {{
+        1: {{ color: 'red' }}
+      }}
+    }};
+
+    var chart = new google.visualization.LineChart(document.getElementById('dos_chart_div'));
+    chart.draw(data, options);
+  }}
+</script>
+"""
+    return html_js_block
+
+
 
 def generate_markdown(context: Dict[str, Any]) -> str:
     """
@@ -582,6 +699,9 @@ def generate_markdown(context: Dict[str, Any]) -> str:
 
     scf_chart_html = _generate_scf_chart_html(context)
     scf_energies_table = _generate_scf_energies_table(context)
+
+    # --- **NEW:** Generate DOS Chart ---
+    dos_chart_html = _generate_dos_chart_html(context)
 
 
     # --- Main Markdown f-string ---
@@ -633,6 +753,9 @@ def generate_markdown(context: Dict[str, Any]) -> str:
 </div>
 
 {scf_chart_html}
+
+### Density of States (DOS)
+{dos_chart_html}
 
 """
     return markdown_content

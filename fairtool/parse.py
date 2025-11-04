@@ -214,8 +214,9 @@ def run_parser(input_file: Path, output_dir: Path, force: bool) -> bool:
                 
                 if "calculation" in run_item and isinstance(run_item["calculation"], list):
                     for calc_item in run_item["calculation"]:
-                        calc_item.pop("dos_electronic", None) # Safe pop
-                        calc_item.pop("eigenvalues", None) # Safe pop
+                        # calc_item.pop("dos_electronic", None) # Safe pop
+                        # calc_item.pop("eigenvalues", None) # Safe pop
+                        pass
 
         # Safe-pop top-level keys
         full_data.pop("entry_name", None)
