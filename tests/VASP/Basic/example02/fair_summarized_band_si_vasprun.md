@@ -114,6 +114,55 @@
 
 ## __Energies__
 
+### SCF Convergence
+
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<div id="scf_chart_div" style="width: 100%; height: 500px; margin-bottom: 20px;"></div>
+<script type="text/javascript">
+  google.charts.load('current', {'packages':['corechart']});
+  google.charts.setOnLoadCallback(drawChart);
+
+  function drawChart() {
+    // Parse the JSON data passed from Python
+    const scfData = JSON.parse('[{"step": 1, "total_ev": -10.62401272, "free_ev": -10.64739058, "total_t0_ev": -10.63570165}, {"step": 2, "total_ev": -12.04650935, "free_ev": -12.0549797, "total_t0_ev": -12.050744519999999}, {"step": 3, "total_ev": -12.047378519999999, "free_ev": -12.05584021, "total_t0_ev": -12.05160936}, {"step": 4, "total_ev": -12.0473787, "free_ev": -12.05584039, "total_t0_ev": -12.051609549999998}, {"step": 5, "total_ev": -12.0473787, "free_ev": -12.05584039, "total_t0_ev": -12.051609549999998}, {"step": 6, "total_ev": -12.0473787, "free_ev": -12.05584039, "total_t0_ev": -12.051609549999998}]');
+
+    var data = new google.visualization.DataTable();
+    data.addColumn('number', 'Step');
+    data.addColumn('number', 'Total Energy (eV)');
+    data.addColumn('number', 'Free Energy (eV)');
+    data.addColumn('number', 'Total Energy (T=0) (eV)');
+
+    // Convert the list of objects into an array of arrays
+    // Google Charts expects null for missing values, which JSON.parse handles
+    const rows = scfData.map(item => [
+      item.step, 
+      item.total_ev, 
+      item.free_ev, 
+      item.total_t0_ev
+    ]);
+
+    data.addRows(rows);
+
+    var options = {
+      title: '',
+      curveType: 'function',
+      legend: { position: 'bottom' },
+      hAxis: {
+        title: 'SCF Step'
+      },
+      vAxis: {
+        title: 'Energy (eV)'
+      },
+      // This allows the chart to be responsive
+      chartArea: {'width': '85%', 'height': '75%'},
+    };
+
+    var chart = new google.visualization.LineChart(document.getElementById('scf_chart_div'));
+    chart.draw(data, options);
+  }
+</script>
+
+
 <div class="grid cards" markdown>
 
 - ### Final Calculation Energies
@@ -129,11 +178,60 @@
 
     | Step | Total Energy (eV) | Free Energy (eV) | Total Energy (T=0) (eV) |
     |:---|---:|---:|---:|
-    | 1 | -10.624013 | -10.647391 | -10.635702 |
-    | 2 | -12.046509 | -12.054980 | -12.050745 |
-    | 3 | -12.047379 | -12.055840 | -12.051609 |
-    | 4 | -12.047379 | -12.055840 | -12.051610 |
-    | 5 | -12.047379 | -12.055840 | -12.051610 |
-    | 6 | -12.047379 | -12.055840 | -12.051610 |
+| 1 | -10.62401 | -10.64739 | -10.63570 |
+| 2 | -12.04651 | -12.05498 | -12.05074 |
+| 3 | -12.04738 | -12.05584 | -12.05161 |
+| 4 | -12.04738 | -12.05584 | -12.05161 |
+| 5 | -12.04738 | -12.05584 | -12.05161 |
+| 6 | -12.04738 | -12.05584 | -12.05161 |
 
 </div>
+
+
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<div id="scf_chart_div" style="width: 100%; height: 500px; margin-bottom: 20px;"></div>
+<script type="text/javascript">
+  google.charts.load('current', {'packages':['corechart']});
+  google.charts.setOnLoadCallback(drawChart);
+
+  function drawChart() {
+    // Parse the JSON data passed from Python
+    const scfData = JSON.parse('[{"step": 1, "total_ev": -10.62401272, "free_ev": -10.64739058, "total_t0_ev": -10.63570165}, {"step": 2, "total_ev": -12.04650935, "free_ev": -12.0549797, "total_t0_ev": -12.050744519999999}, {"step": 3, "total_ev": -12.047378519999999, "free_ev": -12.05584021, "total_t0_ev": -12.05160936}, {"step": 4, "total_ev": -12.0473787, "free_ev": -12.05584039, "total_t0_ev": -12.051609549999998}, {"step": 5, "total_ev": -12.0473787, "free_ev": -12.05584039, "total_t0_ev": -12.051609549999998}, {"step": 6, "total_ev": -12.0473787, "free_ev": -12.05584039, "total_t0_ev": -12.051609549999998}]');
+
+    var data = new google.visualization.DataTable();
+    data.addColumn('number', 'Step');
+    data.addColumn('number', 'Total Energy (eV)');
+    data.addColumn('number', 'Free Energy (eV)');
+    data.addColumn('number', 'Total Energy (T=0) (eV)');
+
+    // Convert the list of objects into an array of arrays
+    // Google Charts expects null for missing values, which JSON.parse handles
+    const rows = scfData.map(item => [
+      item.step, 
+      item.total_ev, 
+      item.free_ev, 
+      item.total_t0_ev
+    ]);
+
+    data.addRows(rows);
+
+    var options = {
+      title: '',
+      curveType: 'function',
+      legend: { position: 'bottom' },
+      hAxis: {
+        title: 'SCF Step'
+      },
+      vAxis: {
+        title: 'Energy (eV)'
+      },
+      // This allows the chart to be responsive
+      chartArea: {'width': '85%', 'height': '75%'},
+    };
+
+    var chart = new google.visualization.LineChart(document.getElementById('scf_chart_div'));
+    chart.draw(data, options);
+  }
+</script>
+
+

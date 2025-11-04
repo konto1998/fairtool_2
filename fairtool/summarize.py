@@ -479,12 +479,12 @@ def _generate_scf_energies_table(context: Dict[str, Any]) -> str:
         def fmt_val(v):
             if v is None or np.isnan(v):
                 return "N/A"
-            return f"{v:.6f}"
+            return f"{v:.5f}"
 
         total = fmt_val(item['total_ev'])
         free = fmt_val(item['free_ev'])
         total_t0 = fmt_val(item['total_t0_ev'])
-        rows.append(f"    | {step} | {total} | {free} | {total_t0} |")
+        rows.append(f"| {step} | {total} | {free} | {total_t0} |")
 
     table = [
         "- ### SCF Iteration Energies\n",
@@ -493,6 +493,73 @@ def _generate_scf_energies_table(context: Dict[str, Any]) -> str:
     ]
     table.extend(rows)
     return "\n".join(table)
+
+
+
+def _generate_scf_chart_html(context: Dict[str, Any]) -> str:
+    """
+    Generates the HTML and JavaScript block for the Google Chart.
+    """
+    scf_table_data = context.get('scf_table_data', [])
+    if not scf_table_data:
+        return ""
+
+    # Serialize the Python data to a JSON string
+    # This is safe because we converted NaN to None in extract_context
+    scf_data_json = json.dumps(scf_table_data)
+
+    # Note: The backticks inside the f-string (for JSON.parse)
+    # must be escaped by doubling them (``) if the outer string uses
+    # f-strings, but here we use ''' so it's fine.
+    # We must be careful with indentation in the JS block.
+    html_js_block = f"""
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<div id="scf_chart_div" style="width: 100%; height: 500px; margin-bottom: 20px;"></div>
+<script type="text/javascript">
+  google.charts.load('current', {{'packages':['corechart']}});
+  google.charts.setOnLoadCallback(drawChart);
+
+  function drawChart() {{
+    // Parse the JSON data passed from Python
+    const scfData = JSON.parse('{scf_data_json}');
+
+    var data = new google.visualization.DataTable();
+    data.addColumn('number', 'Step');
+    data.addColumn('number', 'Total Energy (eV)');
+    data.addColumn('number', 'Free Energy (eV)');
+    data.addColumn('number', 'Total Energy (T=0) (eV)');
+
+    // Convert the list of objects into an array of arrays
+    // Google Charts expects null for missing values, which JSON.parse handles
+    const rows = scfData.map(item => [
+      item.step, 
+      item.total_ev, 
+      item.free_ev, 
+      item.total_t0_ev
+    ]);
+
+    data.addRows(rows);
+
+    var options = {{
+      title: '',
+      curveType: 'function',
+      legend: {{ position: 'bottom' }},
+      hAxis: {{
+        title: 'SCF Step'
+      }},
+      vAxis: {{
+        title: 'Energy (eV)'
+      }},
+      // This allows the chart to be responsive
+      chartArea: {{'width': '85%', 'height': '75%'}},
+    }};
+
+    var chart = new google.visualization.LineChart(document.getElementById('scf_chart_div'));
+    chart.draw(data, options);
+  }}
+</script>
+"""
+    return html_js_block
 
 
 def generate_markdown(context: Dict[str, Any]) -> str:
@@ -512,6 +579,8 @@ def generate_markdown(context: Dict[str, Any]) -> str:
     kpoints_table = _generate_kpoints_table(context)
     metadata_table = _generate_metadata_table(context)
     final_energies_table = _generate_final_energies_table(context)
+
+    scf_chart_html = _generate_scf_chart_html(context)
     scf_energies_table = _generate_scf_energies_table(context)
 
 
@@ -552,6 +621,9 @@ def generate_markdown(context: Dict[str, Any]) -> str:
 
 ## __Energies__
 
+### SCF Convergence
+{scf_chart_html}
+
 <div class="grid cards" markdown>
 
 {final_energies_table}
@@ -559,6 +631,9 @@ def generate_markdown(context: Dict[str, Any]) -> str:
 {scf_energies_table}
 
 </div>
+
+{scf_chart_html}
+
 """
     return markdown_content
 

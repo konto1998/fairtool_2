@@ -1915,6 +1915,15 @@
           ]
         },
         {
+          "name": "Cs",
+          "chemical_symbols": [
+            "Cs"
+          ],
+          "concentration": [
+            1.0
+          ]
+        },
+        {
           "name": "Hg",
           "chemical_symbols": [
             "Hg"
@@ -1931,19 +1940,10 @@
           "concentration": [
             1.0
           ]
-        },
-        {
-          "name": "Cs",
-          "chemical_symbols": [
-            "Cs"
-          ],
-          "concentration": [
-            1.0
-          ]
         }
       ]
     },
-    "fair_parse_time": 1762289271.7292674
+    "fair_parse_time": 1762291836.4372551
   },
   "results": {
     "material": {

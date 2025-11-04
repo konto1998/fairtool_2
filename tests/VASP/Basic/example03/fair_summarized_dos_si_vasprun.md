@@ -114,6 +114,55 @@
 
 ## __Energies__
 
+### SCF Convergence
+
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<div id="scf_chart_div" style="width: 100%; height: 500px; margin-bottom: 20px;"></div>
+<script type="text/javascript">
+  google.charts.load('current', {'packages':['corechart']});
+  google.charts.setOnLoadCallback(drawChart);
+
+  function drawChart() {
+    // Parse the JSON data passed from Python
+    const scfData = JSON.parse('[{"step": 1, "total_ev": 3.76925286, "free_ev": 3.76925286, "total_t0_ev": 3.76925286}, {"step": 2, "total_ev": -10.77482824, "free_ev": -10.77482824, "total_t0_ev": -10.77482824}, {"step": 3, "total_ev": -10.97884908, "free_ev": -10.97884908, "total_t0_ev": -10.97884908}, {"step": 4, "total_ev": -10.979694469999998, "free_ev": -10.979694469999998, "total_t0_ev": -10.979694469999998}, {"step": 5, "total_ev": -10.97969569, "free_ev": -10.97969569, "total_t0_ev": -10.97969569}, {"step": 6, "total_ev": -10.87928799, "free_ev": -10.87928799, "total_t0_ev": -10.87928799}, {"step": 7, "total_ev": -10.831247480000002, "free_ev": -10.831247480000002, "total_t0_ev": -10.831247480000002}, {"step": 8, "total_ev": -10.8325844, "free_ev": -10.8325844, "total_t0_ev": -10.8325844}, {"step": 9, "total_ev": -10.8326945, "free_ev": -10.8326945, "total_t0_ev": -10.8326945}, {"step": 10, "total_ev": -10.8327159, "free_ev": -10.8327159, "total_t0_ev": -10.8327159}]');
+
+    var data = new google.visualization.DataTable();
+    data.addColumn('number', 'Step');
+    data.addColumn('number', 'Total Energy (eV)');
+    data.addColumn('number', 'Free Energy (eV)');
+    data.addColumn('number', 'Total Energy (T=0) (eV)');
+
+    // Convert the list of objects into an array of arrays
+    // Google Charts expects null for missing values, which JSON.parse handles
+    const rows = scfData.map(item => [
+      item.step, 
+      item.total_ev, 
+      item.free_ev, 
+      item.total_t0_ev
+    ]);
+
+    data.addRows(rows);
+
+    var options = {
+      title: '',
+      curveType: 'function',
+      legend: { position: 'bottom' },
+      hAxis: {
+        title: 'SCF Step'
+      },
+      vAxis: {
+        title: 'Energy (eV)'
+      },
+      // This allows the chart to be responsive
+      chartArea: {'width': '85%', 'height': '75%'},
+    };
+
+    var chart = new google.visualization.LineChart(document.getElementById('scf_chart_div'));
+    chart.draw(data, options);
+  }
+</script>
+
+
 <div class="grid cards" markdown>
 
 - ### Final Calculation Energies
@@ -129,15 +178,64 @@
 
     | Step | Total Energy (eV) | Free Energy (eV) | Total Energy (T=0) (eV) |
     |:---|---:|---:|---:|
-    | 1 | 3.769253 | 3.769253 | 3.769253 |
-    | 2 | -10.774828 | -10.774828 | -10.774828 |
-    | 3 | -10.978849 | -10.978849 | -10.978849 |
-    | 4 | -10.979694 | -10.979694 | -10.979694 |
-    | 5 | -10.979696 | -10.979696 | -10.979696 |
-    | 6 | -10.879288 | -10.879288 | -10.879288 |
-    | 7 | -10.831247 | -10.831247 | -10.831247 |
-    | 8 | -10.832584 | -10.832584 | -10.832584 |
-    | 9 | -10.832695 | -10.832695 | -10.832695 |
-    | 10 | -10.832716 | -10.832716 | -10.832716 |
+| 1 | 3.76925 | 3.76925 | 3.76925 |
+| 2 | -10.77483 | -10.77483 | -10.77483 |
+| 3 | -10.97885 | -10.97885 | -10.97885 |
+| 4 | -10.97969 | -10.97969 | -10.97969 |
+| 5 | -10.97970 | -10.97970 | -10.97970 |
+| 6 | -10.87929 | -10.87929 | -10.87929 |
+| 7 | -10.83125 | -10.83125 | -10.83125 |
+| 8 | -10.83258 | -10.83258 | -10.83258 |
+| 9 | -10.83269 | -10.83269 | -10.83269 |
+| 10 | -10.83272 | -10.83272 | -10.83272 |
 
 </div>
+
+
+<script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
+<div id="scf_chart_div" style="width: 100%; height: 500px; margin-bottom: 20px;"></div>
+<script type="text/javascript">
+  google.charts.load('current', {'packages':['corechart']});
+  google.charts.setOnLoadCallback(drawChart);
+
+  function drawChart() {
+    // Parse the JSON data passed from Python
+    const scfData = JSON.parse('[{"step": 1, "total_ev": 3.76925286, "free_ev": 3.76925286, "total_t0_ev": 3.76925286}, {"step": 2, "total_ev": -10.77482824, "free_ev": -10.77482824, "total_t0_ev": -10.77482824}, {"step": 3, "total_ev": -10.97884908, "free_ev": -10.97884908, "total_t0_ev": -10.97884908}, {"step": 4, "total_ev": -10.979694469999998, "free_ev": -10.979694469999998, "total_t0_ev": -10.979694469999998}, {"step": 5, "total_ev": -10.97969569, "free_ev": -10.97969569, "total_t0_ev": -10.97969569}, {"step": 6, "total_ev": -10.87928799, "free_ev": -10.87928799, "total_t0_ev": -10.87928799}, {"step": 7, "total_ev": -10.831247480000002, "free_ev": -10.831247480000002, "total_t0_ev": -10.831247480000002}, {"step": 8, "total_ev": -10.8325844, "free_ev": -10.8325844, "total_t0_ev": -10.8325844}, {"step": 9, "total_ev": -10.8326945, "free_ev": -10.8326945, "total_t0_ev": -10.8326945}, {"step": 10, "total_ev": -10.8327159, "free_ev": -10.8327159, "total_t0_ev": -10.8327159}]');
+
+    var data = new google.visualization.DataTable();
+    data.addColumn('number', 'Step');
+    data.addColumn('number', 'Total Energy (eV)');
+    data.addColumn('number', 'Free Energy (eV)');
+    data.addColumn('number', 'Total Energy (T=0) (eV)');
+
+    // Convert the list of objects into an array of arrays
+    // Google Charts expects null for missing values, which JSON.parse handles
+    const rows = scfData.map(item => [
+      item.step, 
+      item.total_ev, 
+      item.free_ev, 
+      item.total_t0_ev
+    ]);
+
+    data.addRows(rows);
+
+    var options = {
+      title: '',
+      curveType: 'function',
+      legend: { position: 'bottom' },
+      hAxis: {
+        title: 'SCF Step'
+      },
+      vAxis: {
+        title: 'Energy (eV)'
+      },
+      // This allows the chart to be responsive
+      chartArea: {'width': '85%', 'height': '75%'},
+    };
+
+    var chart = new google.visualization.LineChart(document.getElementById('scf_chart_div'));
+    chart.draw(data, options);
+  }
+</script>
+
+
