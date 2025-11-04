@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import re
 import sys
+from datetime import datetime
 
 log = logging.getLogger(__name__)
 
@@ -29,6 +30,32 @@ except ImportError:
 log = logging.getLogger("fairtool")
 
 # --- Data Preparation Functions ---
+
+def _hr_size(num_bytes: int) -> str:
+    """Human readable file size."""
+    for unit in ['B','KB','MB','GB','TB']:
+        if num_bytes < 1024.0:
+            return f"{num_bytes:.1f} {unit}"
+        num_bytes /= 1024.0
+    return f"{num_bytes:.1f} PB"
+
+def _extract_title(file_path):
+    """Return title from markdown (# Heading) or HTML (<title>) file."""
+    try:
+        with open(file_path, encoding="utf-8") as fh:
+            text = fh.read(4096)  # Read only the first 4KB for speed
+            # Markdown H1 title
+            match = re.search(r'^\s*#\s+(.+)', text, re.MULTILINE)
+            if match:
+                return match.group(1).strip()
+            # HTML <title>...</title>
+            match = re.search(r'<title>(.*?)</title>', text, re.IGNORECASE)
+            if match:
+                return match.group(1).strip()
+    except Exception:
+        pass
+    return "—"
+
 
 def get_structure_data(parsed_data: dict) -> Optional[dict]:
     """
@@ -540,19 +567,102 @@ def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False, build: 
             if not idx.exists():
                 try:
                     with open(idx, 'w', encoding='utf-8') as fh:
-                        fh.write(f"# {dirpath.name}\n\n")
-                        fh.write(f"This page lists the content of the `{dirpath.name}` directory.\n\n")
-                        # List pages as links (these are not shown in the nav)
-                        if pages:
-                            fh.write("## Pages in this folder\n\n")
-                            for p in pages:
-                                title = first_h1_title(p)
-                                fh.write(f"- [{title}]({p.relative_to(temp_docs).as_posix()})\n")
-                        else:
-                            fh.write("(No direct pages; see subfolders.)\n")
+                        title = dirpath.name.replace('_', ' ').replace('-', ' ').title()
+                        fh.write(f"# {title}\n\n")
+                        fh.write(f"This page provides an overview of the **`{dirpath.name}`** directory.\n\n")
+
+                        # Discover recursively
+                        all_md_files = [p for p in dirpath.rglob("*.md") if p.name != "index.md"]
+                        all_html_files = [p for p in dirpath.rglob("*.html") if p.name != "index.html"]
+                        structure_files = [p for p in dirpath.rglob("fair-structure.json")]
+                        other_data_files = [p for p in dirpath.rglob("*.json") if p.name != "fair-structure.json"]
+                        graphics_files = [p for p in dirpath.rglob("*") if p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.svg')]
+
+
+                        # --- Markdown/HTML Summary Files ---
+                        if all_md_files or all_html_files:
+                            fh.write("## Summary Pages\n\n")
+                            fh.write("_Markdown or HTML pages found recursively._\n\n")
+                            fh.write("| Path | Type | Size | Modified | Title |\n")
+                            fh.write("|------|------|------|-----------|--------|\n")
+
+                            for f in sorted(all_md_files + all_html_files, key=lambda p: p.relative_to(dirpath).as_posix()):
+                                rel = f.relative_to(dirpath).as_posix()
+                                size = _hr_size(f.stat().st_size)
+                                mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                                ftype = "Markdown" if f.suffix.lower() == ".md" else "HTML"
+                                title = _extract_title(f)
+                                fh.write(f"| `{rel}` | {ftype} | {size} | {mtime} | {title} |\n")
+                            fh.write("\n")
+
+                        # --- Structure Data Files ---
+                        if structure_files:
+                            fh.write("## Structure Data Files\n\n")
+                            fh.write("_FAIR structure files (`fair-structure.json`) found recursively._\n\n")
+                            fh.write("| Path | Type | Size | Modified |\n")
+                            fh.write("|------|------|------|-----------|\n")
+                            for sf in sorted(structure_files, key=lambda p: p.relative_to(dirpath).as_posix()):
+                                rel = sf.relative_to(dirpath).as_posix()
+                                size = _hr_size(sf.stat().st_size)
+                                mtime = datetime.fromtimestamp(sf.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                                fh.write(f"| `{rel}` | Structure JSON | {size} | {mtime} |\n")
+                            fh.write("\n")
+
+                        # --- Other Data Files ---
+                        if other_data_files:
+                            fh.write("## Data Files\n\n")
+                            fh.write("_Other JSON data files found recursively (excluding structure JSON)._  \n\n")
+                            fh.write("| Path | Type | Size | Modified |\n")
+                            fh.write("|------|------|------|-----------|\n")
+
+                            for df in sorted(other_data_files, key=lambda p: p.relative_to(dirpath).as_posix()):
+                                rel = df.relative_to(dirpath).as_posix()
+                                size = _hr_size(df.stat().st_size)
+                                mtime = datetime.fromtimestamp(df.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+                                # Heuristic: infer type
+                                name = df.name.lower()
+                                if "vasprun" in name:
+                                    ftype = "VASP Parsed JSON"
+                                elif "summarized" in name:
+                                    ftype = "Summary JSON"
+                                elif "metadata" in name:
+                                    ftype = "Metadata JSON"                                    
+                                else:
+                                    ftype = "Generic JSON"
+
+                                fh.write(f"| `{rel}` | {ftype} | {size} | {mtime} |\n")
+                            fh.write("\n")
+
+                        # --- Graphics / Visualization Files ---
+                        if graphics_files:
+                            fh.write("## Graphics Files\n\n")
+                            fh.write("_Visualization and figure files found recursively._\n\n")
+                            fh.write("| Path | Type | Size | Modified |\n")
+                            fh.write("|------|------|------|-----------|\n")
+                            for img in sorted(graphics_files, key=lambda p: p.relative_to(dirpath).as_posix()):
+                                rel = img.relative_to(dirpath).as_posix()
+                                size = _hr_size(img.stat().st_size)
+                                mtime = datetime.fromtimestamp(img.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+                                ext = img.suffix.lower().replace('.', '').upper()
+                                ftype = f"{ext} Image"
+
+                                fh.write(f"| `{rel}` | {ftype} | {size} | {mtime} |\n")
+                            fh.write("\n")
+
+
+                        if not (all_md_files or all_html_files or structure_files or other_data_files):
+                            fh.write("_This folder currently has no recognized Markdown, HTML, or data files._\n\n")
+
+                        fh.write("\n---\n")
+                        fh.write("*(AI generated summary coming soon)*\n")
+
                 except Exception:
-                    # If we can't write the index, continue without creating it
-                    log.debug(f"Could not create index.md for {dirpath}", exc_info=True)
+                    log.debug(f"Could not create smart index.md for {dirpath}", exc_info=True)
+
+
+
 
             # Build nav entries: the first entry for a directory is an explicit
             # mapping label -> index page so MkDocs will use the provided label
