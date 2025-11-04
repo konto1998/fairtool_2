@@ -1285,7 +1285,7 @@
   "metadata": {
     "entry_name": "Si VASP DFT SinglePoint simulation",
     "entry_type": "VASP DFT SinglePoint",
-    "mainfile": "/home/ravindra/codes/devel/neelravi/fairtool/tests/VASP/example03/dos_si_vasprun.xml",
+    "mainfile": "/home/ravindra/codes/devel/neelravi/fairtool/tests/VASP/Basic/example03/dos_si_vasprun.xml",
     "domain": "dft",
     "optimade": {
       "elements": [
@@ -1351,7 +1351,7 @@
         }
       ]
     },
-    "fair_parse_time": 1762121538.6857872
+    "fair_parse_time": 1762266294.194651
   },
   "results": {
     "material": {

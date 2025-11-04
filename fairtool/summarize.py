@@ -156,6 +156,7 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     material = results.get("material", {})
     topology = material.get("topology", [])
 
+
     # **BUG FIX:** Initialize dictionaries to {} to prevent NameError/AttributeError
     sim_first_nested_data = {}
     sim_second_nested_data = {}
@@ -164,6 +165,7 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     t_cell_data_sym = {}
     original_cell = {}
     cell_type_data = {}
+    system_data = {}
     
     # Safely get sim data
     nested_dicts = [v for v in simulation.values() if isinstance(v, dict)]
@@ -198,38 +200,39 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     k_weights = k_mesh.get("weights", [])
 
     # --- **REFACTOR:** Simplified K-point table generation ---
-    table_md = ""
-    try:
-        # k_points["re"] often has shape (3, N_points_total) or (3, Nk1, Nk2, Nk3)
-        points_raw = np.array(k_points.get("re", []))
-        k_weights_raw = np.array(k_weights).flatten()
+    # table_md = ""
+    # try:
+    #     # k_points["re"] often has shape (3, N_points_total) or (3, Nk1, Nk2, Nk3)
+    #     points_raw = np.array(k_points.get("re", []))
+    #     k_weights_raw = np.array(k_weights).flatten()
 
-        if points_raw.ndim > 0 and points_raw.shape[0] == 3:
-            # Flatten all dimensions except the first (the xyz component)
-            n_points = points_raw[0].size
-            kx = points_raw[0].flatten()
-            ky = points_raw[1].flatten()
-            kz = points_raw[2].flatten()
+    #     if points_raw.ndim > 0 and points_raw.shape[0] == 3:
+    #         # Flatten all dimensions except the first (the xyz component)
+    #         n_points = points_raw[0].size
+    #         kx = points_raw[0].flatten()
+    #         ky = points_raw[1].flatten()
+    #         kz = points_raw[2].flatten()
             
-            if len(k_weights_raw) == n_points:
-                # Zip them together
-                table_data = zip(kx, ky, kz, k_weights_raw)
-                table_rows_str = []
-                for row in table_data:
-                    # Format: | 0.000 | 0.000 | 0.000 | 0.037 |
-                    formatted_row = "    | " + " | ".join(f"{v:.3f}" for v in row) + " |"
-                    table_rows_str.append(formatted_row)
-                table_md = "\n".join(table_rows_str)
-                log.info(f"Successfully processed {n_points} k-points for summary.")
-            else:
-                log.warning(f"K-point coordinate count ({n_points}) != weight count ({len(k_weights_raw)}). Skipping k-point table.")
-        elif points_raw.size == 0:
-             log.info("No k-point coordinates found in 're' key.")
-        else:
-            log.warning(f"Unexpected k-point 're' shape: {points_raw.shape}. Expected (3, ...). Skipping k-point table.")
-    except Exception as e:
-        log.error(f"Failed to process k-points: {e}", exc_info=False)
-        table_md = "    | Error processing k-points. |"
+    #         if len(k_weights_raw) == n_points:
+    #             # Zip them together
+    #             table_data = zip(kx, ky, kz, k_weights_raw)
+    #             table_rows_str = []
+    #             for row in table_data:
+    #                 # Format: | 0.000 | 0.000 | 0.000 | 0.037 |
+    #                 formatted_row = "|" + "|".join(f"{v:.2f}" for v in row) + "|"
+    #                 table_rows_str.append(formatted_row)
+    #                 # print (formatted_row)  # Debug print
+    #             table_md = "\n".join(table_rows_str)
+    #             log.info(f"Successfully processed {n_points} k-points for summary.")
+    #         else:
+    #             log.warning(f"K-point coordinate count ({n_points}) != weight count ({len(k_weights_raw)}). Skipping k-point table.")
+    #     elif points_raw.size == 0:
+    #          log.info("No k-point coordinates found in 're' key.")
+    #     else:
+    #         log.warning(f"Unexpected k-point 're' shape: {points_raw.shape}. Expected (3, ...). Skipping k-point table.")
+    # except Exception as e:
+    #     log.error(f"Failed to process k-points: {e}", exc_info=False)
+    #     table_md = "    | Error processing k-points. |"
 
     # --- **REFACTOR:** Simplified SCF Energy Extraction using helper ---
     log.info("Extracting SCF energy data.")
@@ -253,12 +256,14 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
 
     | Property                     | Value                       |
     |------------------------------|-----------------------------|
-    | Chemical formula (IUPAC)     | {t_original_data.get("chemical_formula_iupac", "unavailable")} |
-    | Structural type             | **{t_original_data.get("structural_type", "unavailable")}** |
+    | Chemical formula (IUPAC)     | **{t_original_data.get("chemical_formula_iupac", "unavailable")}** |
+    | Chemical formula (Reduced)   | **{t_original_data.get("chemical_formula_reduced", "unavailable")}** |
     | Label                       | **{t_original_data.get("label", "unavailable")}** |
     | Elements                    | {', '.join(t_original_data.get("elements", [])) or "unavailable"} |
     | Number of elements          | {len(t_original_data.get("elements", []))} |
     | Number of atoms             | {t_original_data.get("n_atoms", "unavailable")} |
+    | Dimensionality              | **{t_original_data.get("dimensionality", "unavailable")}** |
+
 
 </div>
     
@@ -324,7 +329,7 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
 
     | Property               | Value |
     |------------------------|--------|
-    | Dimensionality         | **{k_mesh.get("type", "unavailable")}** |
+    | Dimensionality         | **{k_mesh.get("dimensionality", "unavailable")}** |
     | Sampling method        | **{k_mesh.get("sampling_method", "unavailable")}** |
     | Number of points       | **{k_mesh.get("n_points", "unavailable")}** |
     | Grid                   | **{k_mesh.get("grid", "unavailable")}** |
@@ -347,14 +352,15 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     | **Entry name** | {metadata.get('entry_name', 'unavailable')}                |
     | **Mainfile** | {Path(metadata.get('mainfile', 'unavailable')).name}                 |
 
-- ## k-points and weights
-
-    | kx | ky | kz | Weight |
-    |----|----|----|--------|
-{table_md}
-
 </div>
 """
+
+# - ## k-points and weights
+
+#     | kx | ky | kz | Weight |
+#     |---|---|---|---|
+# {table_md}
+
 
     # --- Save the markdown report ---
     # The output name is based on the *input* JSON file name

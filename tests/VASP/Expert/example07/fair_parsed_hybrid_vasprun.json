@@ -1684,7 +1684,7 @@
   "metadata": {
     "entry_name": "C48H24O26Zn8 VASP DFT SinglePoint simulation",
     "entry_type": "VASP DFT SinglePoint",
-    "mainfile": "/home/ravindra/codes/devel/neelravi/fairtool/tests/VASP/example07/hybrid_vasprun.xml",
+    "mainfile": "/home/ravindra/codes/devel/neelravi/fairtool/tests/VASP/Expert/example07/hybrid_vasprun.xml",
     "domain": "dft",
     "optimade": {
       "elements": [
@@ -2370,9 +2370,9 @@
       "structure_features": [],
       "species": [
         {
-          "name": "C",
+          "name": "H",
           "chemical_symbols": [
-            "C"
+            "H"
           ],
           "concentration": [
             1.0
@@ -2388,9 +2388,9 @@
           ]
         },
         {
-          "name": "H",
+          "name": "C",
           "chemical_symbols": [
-            "H"
+            "C"
           ],
           "concentration": [
             1.0
@@ -2407,7 +2407,7 @@
         }
       ]
     },
-    "fair_parse_time": 1762121644.2193532
+    "fair_parse_time": 1762266347.421558
   },
   "results": {
     "material": {

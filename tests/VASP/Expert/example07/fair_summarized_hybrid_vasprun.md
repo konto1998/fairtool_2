@@ -9,12 +9,14 @@
 
     | Property                     | Value                       |
     |------------------------------|-----------------------------|
-    | Chemical formula (IUPAC)     | Zn4C24H12O13 |
-    | Structural type             | **unavailable** |
+    | Chemical formula (IUPAC)     | **Zn4C24H12O13** |
+    | Chemical formula (Reduced)   | **C24H12O13Zn4** |
     | Label                       | **original** |
     | Elements                    | C, H, O, Zn |
     | Number of elements          | 4 |
     | Number of atoms             | 106 |
+    | Dimensionality              | **unavailable** |
+
 
 </div>
     
@@ -80,7 +82,7 @@
 
     | Property               | Value |
     |------------------------|--------|
-    | Dimensionality         | **unavailable** |
+    | Dimensionality         | **3** |
     | Sampling method        | **Gamma-centered** |
     | Number of points       | **1** |
     | Grid                   | **[1, 1, 1]** |
@@ -102,11 +104,5 @@
     | **Entry type** | VASP DFT SinglePoint                |
     | **Entry name** | C48H24O26Zn8 VASP DFT SinglePoint simulation                |
     | **Mainfile** | hybrid_vasprun.xml                 |
-
-- ## k-points and weights
-
-    | kx | ky | kz | Weight |
-    |----|----|----|--------|
-    | 0.000 | 0.000 | 0.000 | 1.000 |
 
 </div>

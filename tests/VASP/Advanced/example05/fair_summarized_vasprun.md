@@ -9,12 +9,14 @@
 
     | Property                     | Value                       |
     |------------------------------|-----------------------------|
-    | Chemical formula (IUPAC)     | Mg |
-    | Structural type             | **unavailable** |
+    | Chemical formula (IUPAC)     | **Mg** |
+    | Chemical formula (Reduced)   | **Mg** |
     | Label                       | **original** |
     | Elements                    | Mg |
     | Number of elements          | 1 |
     | Number of atoms             | 1 |
+    | Dimensionality              | **3D** |
+
 
 </div>
     
@@ -80,7 +82,7 @@
 
     | Property               | Value |
     |------------------------|--------|
-    | Dimensionality         | **unavailable** |
+    | Dimensionality         | **3** |
     | Sampling method        | **Monkhorst-Pack** |
     | Number of points       | **32768** |
     | Grid                   | **[32, 32, 32]** |
@@ -102,11 +104,5 @@
     | **Entry type** | VASP DFT SinglePoint                |
     | **Entry name** | Mg VASP DFT SinglePoint simulation                |
     | **Mainfile** | vasprun.xml                 |
-
-- ## k-points and weights
-
-    | kx | ky | kz | Weight |
-    |----|----|----|--------|
-
 
 </div>

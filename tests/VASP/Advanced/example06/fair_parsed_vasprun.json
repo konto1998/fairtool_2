@@ -15162,7 +15162,7 @@
   "metadata": {
     "entry_name": "AcAg VASP GeometryOptimization simulation",
     "entry_type": "VASP GeometryOptimization",
-    "mainfile": "/home/ravindra/codes/devel/neelravi/fairtool/tests/VASP/example06/vasprun.xml",
+    "mainfile": "/home/ravindra/codes/devel/neelravi/fairtool/tests/VASP/Advanced/example06/vasprun.xml",
     "domain": "dft",
     "optimade": {
       "elements": [
@@ -15239,7 +15239,7 @@
         }
       ]
     },
-    "fair_parse_time": 1762121592.1120887
+    "fair_parse_time": 1762266238.8340409
   },
   "results": {
     "material": {

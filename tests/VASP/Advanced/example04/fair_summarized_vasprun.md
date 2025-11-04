@@ -9,12 +9,14 @@
 
     | Property                     | Value                       |
     |------------------------------|-----------------------------|
-    | Chemical formula (IUPAC)     | Si |
-    | Structural type             | **unavailable** |
+    | Chemical formula (IUPAC)     | **Si** |
+    | Chemical formula (Reduced)   | **Si** |
     | Label                       | **original** |
     | Elements                    | Si |
     | Number of elements          | 1 |
     | Number of atoms             | 2 |
+    | Dimensionality              | **3D** |
+
 
 </div>
     
@@ -80,7 +82,7 @@
 
     | Property               | Value |
     |------------------------|--------|
-    | Dimensionality         | **unavailable** |
+    | Dimensionality         | **3** |
     | Sampling method        | **Gamma-centered** |
     | Number of points       | **216** |
     | Grid                   | **[6, 6, 6]** |
@@ -102,11 +104,5 @@
     | **Entry type** | VASP GW SinglePoint                |
     | **Entry name** | Si VASP GW SinglePoint simulation                |
     | **Mainfile** | vasprun.xml                 |
-
-- ## k-points and weights
-
-    | kx | ky | kz | Weight |
-    |----|----|----|--------|
-
 
 </div>

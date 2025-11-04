@@ -9,12 +9,14 @@
 
     | Property                     | Value                       |
     |------------------------------|-----------------------------|
-    | Chemical formula (IUPAC)     | AcAg |
-    | Structural type             | **unavailable** |
+    | Chemical formula (IUPAC)     | **AcAg** |
+    | Chemical formula (Reduced)   | **AcAg** |
     | Label                       | **original** |
     | Elements                    | Ac, Ag |
     | Number of elements          | 2 |
     | Number of atoms             | 2 |
+    | Dimensionality              | **3D** |
+
 
 </div>
     
@@ -80,7 +82,7 @@
 
     | Property               | Value |
     |------------------------|--------|
-    | Dimensionality         | **unavailable** |
+    | Dimensionality         | **3** |
     | Sampling method        | **Gamma-centered** |
     | Number of points       | **4096** |
     | Grid                   | **[16, 16, 16]** |
@@ -102,11 +104,5 @@
     | **Entry type** | VASP GeometryOptimization                |
     | **Entry name** | AcAg VASP GeometryOptimization simulation                |
     | **Mainfile** | vasprun.xml                 |
-
-- ## k-points and weights
-
-    | kx | ky | kz | Weight |
-    |----|----|----|--------|
-
 
 </div>
