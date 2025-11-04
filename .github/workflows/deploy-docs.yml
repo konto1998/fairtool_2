@@ -30,9 +30,14 @@ jobs:
         with:
           python-version: "3.9"
 
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
       - name: Install FAIR tool dependencies
         run: |
-          pip install fairtool  # or your exact install command if local
+          pip install -e .
 
       - name: Build site using FAIR tool
         run: fair visualize tests/VASP/ --build
