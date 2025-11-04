@@ -1,20 +1,33 @@
 # fairtool/summarize.py
 
-"""Handles the generation of human-readable summaries."""
+"""
+Handles the generation of human-readable summaries from parsed VASP data.
+
+This refactored version separates concerns into:
+1.  Loading data (load_data)
+2.  Extracting and processing data into a context dict (extract_context)
+3.  Generating Markdown from the context (generate_markdown)
+4.  Saving the final report (save_report)
+
+The main 'run_summarization' function orchestrates this flow.
+"""
 
 import json
 import logging
 from pathlib import Path
-from typing import Optional, List, Tuple
+from typing import Optional, List, Tuple, Dict, Any, Union
 import re
 import pint
 import numpy as np
-u = pint.UnitRegistry()
 
+# --- Setup ---
+u = pint.UnitRegistry()
 log = logging.getLogger("fairtool")
 ELEMENTARY_CHARGE_VALUE = 1.602176634e-19  # Elementary charge in Coulombs
+J_PER_EV = ELEMENTARY_CHARGE_VALUE # Alias for clarity
 
-# --- Helper Function for SCF Energy Extraction ---
+# --- Original Helper Functions (Unchanged) ---
+# These functions are well-structured and perform specific tasks.
 
 def _extract_energy_lists(scf_iterations: List[dict], energy_key: str) -> Tuple[List[float], List[float]]:
     """
@@ -25,30 +38,23 @@ def _extract_energy_lists(scf_iterations: List[dict], energy_key: str) -> Tuple[
         energy_key: The key of the energy to extract (e.g., "total", "xc").
 
     Returns:
-        A tuple of (energies_in_eV, energies_divided_by_e).
+        A tuple of (energies_in_eV, energies_in_J).
     """
-    energies_ev = []
-    energies_divided = []
+    energies_J = []
+    energies_eV = []
     for iteration in scf_iterations:
-        # Safe traversal using .get()
         value = iteration.get('energy', {}).get(energy_key, {}).get('value')
         
         if value is not None:
-            energies_ev.append(value)
+            energies_J.append(value)
             try:
-                # We assume the value is in Joules if division is happening
-                divided_energy = value / ELEMENTARY_CHARGE_VALUE
-                energies_divided.append(divided_energy)
+                energies_eV.append(value / J_PER_EV)
             except (ZeroDivisionError, TypeError):
-                energies_divided.append(float('nan'))
+                energies_eV.append(float('nan'))
         else:
-            # Append NaN if value is missing for this iteration
-            energies_ev.append(float('nan'))
-            energies_divided.append(float('nan'))
-    return energies_ev, energies_divided
-
-# --- Unit Conversion Helper Functions (Unchanged) ---
-# These functions are well-structured and remain the same.
+            energies_J.append(float('nan'))
+            energies_eV.append(float('nan'))
+    return energies_eV, energies_J
 
 def _scalar(x):
     """Unwrap 1-item list/tuple -> value; otherwise return as-is."""
@@ -102,7 +108,7 @@ def _strip_parens(s: object, default: str = "unavailable") -> str:
     cleaned = re.sub(r"\s*\(.*?\)", "", s)
     return cleaned.strip() or default
 
-def _format_field_numeric(value, field, default: str = "unavailable"):
+def _format_field_numeric(value, field, default = None):
     """Return a string formatted according to FIELD_UNITS for the given field."""
     try:
         num = _convert_field(value, field, default=None, return_numeric=True)
@@ -116,39 +122,35 @@ def _format_field_numeric(value, field, default: str = "unavailable"):
     except Exception:
         return default
 
+# --- New Modular Functions ---
 
-# --- Main Summarization Function ---
-
-def run_summarization(input_path: Path, output_dir: Path, template_path: Optional[str] = None):
-    """
-    Generates summary reports (e.g., Markdown) from parsed or analyzed data.
-
-    Args:
-        input_path: Path to input data (e.g., analysis_summary.csv, directory).
-        output_dir: Directory to save the summary report.
-        template_path: Optional path to a custom Jinja2 template file.
-    """
-    
-    # --- Load Data ---
+def load_data(input_path: Path) -> Optional[Dict[str, Any]]:
+    """Loads and parses the JSON data file."""
     try:
         log.info(f"Loading parsed data from: {input_path}")
         with open(input_path, "r", encoding="utf-8") as f:
             data = json.load(f)
-            log.info("Successfully loaded JSON data.")
+        log.info("Successfully loaded JSON data.")
+        if not isinstance(data, dict) or not data:
+             log.warning("No valid data loaded.")
+             return None
+        return data
     except Exception as e:
-        log.error(f"Failed to load JSON: {e}")
-        data = {} # Ensure data is a dict so .get() works
-        
-    # --- Markdown Summary Data Preparation ---
-    if not data or not isinstance(data, dict):
-        log.warning("No valid data loaded, cannot generate summary.")
-        return
+        log.error(f"Failed to load or parse JSON: {e}")
+        return None
 
+def extract_context(data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Extracts all necessary data from the raw JSON dict into a flat context.
+    
+    This context is used by the Markdown generator.
+    """
+    context = {}
+    
     # --- Safe Data Extraction ---
-    # Use .get() and default to empty dicts/lists to prevent crashes
     run_list = data.get("run", [])
     run = run_list[0] if run_list else {}
-    metadata = data.get("metadata", {})
+    context['metadata'] = data.get("metadata", {})
     results = data.get("results", {})
 
     method = results.get("method", {})
@@ -156,25 +158,14 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
     material = results.get("material", {})
     topology = material.get("topology", [])
 
-
-    # **BUG FIX:** Initialize dictionaries to {} to prevent NameError/AttributeError
-    sim_first_nested_data = {}
-    sim_second_nested_data = {}
-    t_original_data = {}
-    t_cell_data = {}
-    t_cell_data_sym = {}
-    original_cell = {}
-    cell_type_data = {}
-    system_data = {}
-    
     # Safely get sim data
     nested_dicts = [v for v in simulation.values() if isinstance(v, dict)]
-    if len(nested_dicts) > 0:
-        sim_first_nested_data = nested_dicts[0]
-    if len(nested_dicts) > 1:
-        sim_second_nested_data = nested_dicts[1]
+    context['sim_first_nested_data'] = nested_dicts[0] if len(nested_dicts) > 0 else {}
+    context['sim_second_nested_data'] = nested_dicts[1] if len(nested_dicts) > 1 else {}
     
     # Safely get topology data
+    t_original_data = {}
+    t_cell_data = {}
     for obj in topology:
         if not isinstance(obj, dict):
             continue
@@ -184,195 +175,451 @@ def run_summarization(input_path: Path, output_dir: Path, template_path: Optiona
         elif label in ("primitive cell", "conventional cell"):
             t_cell_data = obj
             
-    # Safely get sub-data *after* loops, from (potentially empty) dicts
-    original_cell = t_original_data.get("cell", {})
-    cell_type_data = t_cell_data.get("cell", {})
-    t_cell_data_sym = t_cell_data.get("symmetry", {})
+    context['t_original_data'] = t_original_data
+    context['t_cell_data'] = t_cell_data
+    context['original_cell'] = t_original_data.get("cell", {})
+    context['cell_type_data'] = t_cell_data.get("cell", {})
+    context['t_cell_data_sym'] = t_cell_data.get("symmetry", {})
 
     # Safely get calculation data
     calculation = run.get("calculation", [])
-    scf_iterations = calculation[0].get("scf_iteration", []) if calculation else []
+    calc = calculation[0] if calculation else {}
+    scf_iterations = calc.get("scf_iteration", [])
 
     # Safely get k_mesh data
     runmethod = run.get("method", [])
     k_mesh = runmethod[0].get("k_mesh", {}) if runmethod else {}
-    k_points = k_mesh.get("points", {})
-    k_weights = k_mesh.get("weights", [])
+    
+    # --- Populate Context ---
+    context['method'] = method
+    context['simulation'] = simulation
+    context['k_mesh'] = k_mesh
+    
+    # --- **NEW:** Extract Final Energies (from run.calculation[0].energy) ---
+    final_energy_data = calc.get("energy", {})
+    final_energies_ev = {}
+    for key, value_dict in final_energy_data.items():
+        if isinstance(value_dict, dict) and 'value' in value_dict:
+            value_j = value_dict.get('value')
+            if value_j is not None:
+                try:
+                    final_energies_ev[key] = value_j / J_PER_EV
+                except (ZeroDivisionError, TypeError):
+                    final_energies_ev[key] = float('nan')
+    context['final_energies_ev'] = final_energies_ev
 
-    # --- **REFACTOR:** Simplified K-point table generation ---
-    # table_md = ""
-    # try:
-    #     # k_points["re"] often has shape (3, N_points_total) or (3, Nk1, Nk2, Nk3)
-    #     points_raw = np.array(k_points.get("re", []))
-    #     k_weights_raw = np.array(k_weights).flatten()
+    # --- **NEW:** Extract Band Gap Info ---
+    band_gap_list = calc.get("band_gap", [])
+    band_gap_data = band_gap_list[0] if band_gap_list else {}
+    band_gap_j = band_gap_data.get("value")
+    if band_gap_j is not None:
+        try:
+            # Add band gap in eV to the final_energies_ev dict for convenience
+            context['final_energies_ev']['band_gap'] = band_gap_j / J_PER_EV
+        except (ZeroDivisionError, TypeError):
+            context['final_energies_ev']['band_gap'] = float('nan')
 
-    #     if points_raw.ndim > 0 and points_raw.shape[0] == 3:
-    #         # Flatten all dimensions except the first (the xyz component)
-    #         n_points = points_raw[0].size
-    #         kx = points_raw[0].flatten()
-    #         ky = points_raw[1].flatten()
-    #         kz = points_raw[2].flatten()
-            
-    #         if len(k_weights_raw) == n_points:
-    #             # Zip them together
-    #             table_data = zip(kx, ky, kz, k_weights_raw)
-    #             table_rows_str = []
-    #             for row in table_data:
-    #                 # Format: | 0.000 | 0.000 | 0.000 | 0.037 |
-    #                 formatted_row = "|" + "|".join(f"{v:.2f}" for v in row) + "|"
-    #                 table_rows_str.append(formatted_row)
-    #                 # print (formatted_row)  # Debug print
-    #             table_md = "\n".join(table_rows_str)
-    #             log.info(f"Successfully processed {n_points} k-points for summary.")
-    #         else:
-    #             log.warning(f"K-point coordinate count ({n_points}) != weight count ({len(k_weights_raw)}). Skipping k-point table.")
-    #     elif points_raw.size == 0:
-    #          log.info("No k-point coordinates found in 're' key.")
-    #     else:
-    #         log.warning(f"Unexpected k-point 're' shape: {points_raw.shape}. Expected (3, ...). Skipping k-point table.")
-    # except Exception as e:
-    #     log.error(f"Failed to process k-points: {e}", exc_info=False)
-    #     table_md = "    | Error processing k-points. |"
-
-    # --- **REFACTOR:** Simplified SCF Energy Extraction using helper ---
+    # --- **NEW:** Extract SCF Iteration Energies ---
     log.info("Extracting SCF energy data.")
-    total_energies_ev, total_energies = _extract_energy_lists(scf_iterations, "total")
-    xc_energies_ev, xc_energies = _extract_energy_lists(scf_iterations, "xc")
-    free_energies_ev, free_energies = _extract_energy_lists(scf_iterations, "free")
-    total_t0_energies_ev, total_t0_energies = _extract_energy_lists(scf_iterations, "total_t0")
-    correction_hartree_energies_ev, correction_hartree_energies = _extract_energy_lists(scf_iterations, "correction_hartree")
+    total_ev, _ = _extract_energy_lists(scf_iterations, "total")
+    free_ev, _ = _extract_energy_lists(scf_iterations, "free")
+    total_t0_ev, _ = _extract_energy_lists(scf_iterations, "total_t0")
 
-    # --- Markdown Report Generation ---
-    # The f-string is now safe because all data-access
-    # keys (e.g., t_original_data) are guaranteed to be dicts.
+    scf_table_data = []
+    # Use the longest list to determine the number of steps
+    n_steps = max(len(total_ev), len(free_ev), len(total_t0_ev))
+    for i in range(n_steps):
+        scf_table_data.append({
+            'step': i + 1,
+            'total_ev': total_ev[i] if i < len(total_ev) else None,
+            'free_ev': free_ev[i] if i < len(free_ev) else None,
+            'total_t0_ev': total_t0_ev[i] if i < len(total_t0_ev) else None,
+        })
+    context['scf_table_data'] = scf_table_data
+
+    return context
+
+# --- New Markdown Table Generator Functions ---
+
+def _add_row(rows: List[str], label: str, value: Any, unit: str = "", bold_value: bool = True):
+    """Helper to add a formatted Markdown row if value is valid."""
+    if value is None or value == "" or value == [] or value == "unavailable":
+        return  # Skip row
+    
+    # Special handling for _strip_parens default
+    if isinstance(value, str) and value.strip() == "unavailable":
+        return
+
+    value_str = f"**{value}**" if bold_value else str(value)
+    
+    if unit:
+        rows.append(f"    | {label} | {value_str} | {unit} |")
+    else:
+        rows.append(f"    | {label} | {value_str} |")
+
+def _generate_material_composition_table(context: Dict[str, Any]) -> str:
+    """Generates the Markdown table for Material Composition."""
+    t_original_data = context.get('t_original_data', {})
+    rows = []
+    
+    _add_row(rows, "Chemical formula (IUPAC)", t_original_data.get("chemical_formula_iupac"))
+    _add_row(rows, "Chemical formula (Reduced)", t_original_data.get("chemical_formula_reduced"))
+    _add_row(rows, "Label", t_original_data.get("label"))
+    
+    elements = t_original_data.get("elements")
+    _add_row(rows, "Elements", ", ".join(elements) if elements else None)
+    if elements:
+         _add_row(rows, "Number of elements", len(elements))
+    
+    _add_row(rows, "Number of atoms", t_original_data.get("n_atoms"))
+    _add_row(rows, "Dimensionality", t_original_data.get("dimensionality"))
+
+    if not rows:
+        return ""
+        
+    header = [
+        f"- ## Material Composition - {t_original_data.get('label', 'Original Material')}\n",
+        "    | Property                     | Value                       |",
+        "    |------------------------------|-----------------------------|",
+    ]
+    return "\n".join(header + rows)
+
+def _generate_lattice_table(context: Dict[str, Any], cell_key: str, label_key: str) -> str:
+    """Generates the Markdown tables for Lattice properties."""
+    cell_data = context.get(cell_key, {})
+    label = context.get(label_key, {}).get('label', 'unavailable')
+    if not cell_data:
+        return ""
+        
+    rows_const = []
+    rows_angles = []
+    rows_quant = []
+
+    _add_row(rows_const, "a", _format_field_numeric(cell_data.get("a"), "a"), "Angstrom")
+    _add_row(rows_const, "b", _format_field_numeric(cell_data.get("b"), "b"), "Angstrom")
+    _add_row(rows_const, "c", _format_field_numeric(cell_data.get("c"), "c"), "Angstrom")
+    
+    _add_row(rows_angles, "Alpha", _format_field_numeric(cell_data.get("alpha"), "alpha"), "Degrees")
+    _add_row(rows_angles, "Beta", _format_field_numeric(cell_data.get("beta"), "beta"), "Degrees")
+    _add_row(rows_angles, "Gamma", _format_field_numeric(cell_data.get("gamma"), "gamma"), "Degrees")
+
+    _add_row(rows_quant, "Volume", _format_field_numeric(cell_data.get("volume"), "volume"), "Å³")
+    _add_row(rows_quant, "Mass density", _format_field_numeric(cell_data.get("mass_density"), "mass_density"), "kg / Å³")
+    _add_row(rows_quant, "Atomic density", _format_field_numeric(cell_data.get("atomic_density"), "atomic_density"), "Å⁻³")
+
+    if not (rows_const or rows_angles or rows_quant):
+        return ""
+
+    table = [f"- ## Lattice ({label_key})\n"]
+    if rows_const:
+        table.extend([
+            "    | Lattice constant | Value     | Units |",
+            "    |------------------|-----------|-------|",
+        ] + rows_const)
+    if rows_angles:
+        table.extend([
+            "\n    | Lattice angles    | Value     | Units |",
+            "    |------------------|-----------|-------|",
+        ] + rows_angles)
+    if rows_quant:
+        table.extend([
+            "\n    | Cell quantities   | Value     | Units |",
+            "    |------------------|-----------|-------|",
+        ] + rows_quant)
+    
+    return "\n".join(table)
+
+def _generate_symmetry_table(context: Dict[str, Any]) -> str:
+    """Generates the Markdown table for Symmetry properties."""
+    t_cell_data_sym = context.get('t_cell_data_sym', {})
+    t_cell_data = context.get('t_cell_data', {})
+    if not t_cell_data_sym:
+        return ""
+        
+    rows = []
+    _add_row(rows, "Crystal system", t_cell_data_sym.get("crystal_system"))
+    _add_row(rows, "Bravais lattice", t_cell_data_sym.get("bravais_lattice"))
+    _add_row(rows, "Strukturbericht designation", t_cell_data_sym.get("strukturbericht_designation"), bold_value=False) # Italic
+    _add_row(rows, "Space group symbol", t_cell_data_sym.get("space_group_symbol"))
+    _add_row(rows, "Space group number", t_cell_data_sym.get("space_group_number"))
+    _add_row(rows, "Point group", t_cell_data_sym.get("point_group"))
+    _add_row(rows, "Hall number", t_cell_data_sym.get("hall_number"))
+    _add_row(rows, "Hall symbol", t_cell_data_sym.get("hall_symbol"))
+    _add_row(rows, "Prototype name", t_cell_data_sym.get("prototype_name"))
+    _add_row(rows, "Prototype label aflow", t_cell_data_sym.get("prototype_label_aflow"))
+    
+    if not rows:
+        return ""
+
+    label = t_cell_data.get('label', 'unavailable')
+    header = [
+        f"- ## Symmetry ({label})\n",
+        "    | Property                       | Value            |",
+        "    |---------------------------------|------------------|",
+    ]
+    return "\n".join(header + rows)
+
+def _generate_kpoints_table(context: Dict[str, Any]) -> str:
+    """Generates the Markdown table for K points information."""
+    k_mesh = context.get('k_mesh', {})
+    if not k_mesh:
+        return ""
+    
+    rows = []
+    _add_row(rows, "Dimensionality", k_mesh.get("dimensionality"))
+    _add_row(rows, "Sampling method", k_mesh.get("sampling_method"))
+    _add_row(rows, "Number of points", k_mesh.get("n_points"))
+    _add_row(rows, "Grid", k_mesh.get("grid"))
+    
+    if not rows:
+        return ""
+
+    header = [
+        "- ## K points information\n",
+        "    | Property               | Value |",
+        "    |------------------------|--------|",
+    ]
+    return "\n".join(header + rows)
+
+def _generate_metadata_table(context: Dict[str, Any]) -> str:
+    """Generates the Markdown table for Calculation Metadata."""
+    metadata = context.get('metadata', {})
+    method = context.get('method', {})
+    simulation = context.get('simulation', {})
+    sim_first = context.get('sim_first_nested_data', {})
+    sim_second = context.get('sim_second_nested_data', {})
+
+    rows = []
+    _add_row(rows, "**Method name**", method.get('method_name'), bold_value=False)
+    _add_row(rows, "**Workflow name**", method.get('workflow_name'), bold_value=False)
+    _add_row(rows, "**Program name**", simulation.get('program_name'), bold_value=False)
+    _add_row(rows, "**Program version**", _strip_parens(simulation.get('program_version'), default=None), bold_value=False)
+    _add_row(rows, "**Basis set type**", sim_first.get('basis_set_type'), bold_value=False)
+    _add_row(rows, "**Core electron treatment**", sim_first.get('core_electron_treatment'), bold_value=False)
+    _add_row(rows, "**Jacob's ladder**", sim_first.get('jacobs_ladder'), bold_value=False)
+    
+    xc_names = sim_first.get('xc_functional_names')
+    _add_row(rows, "**XC functional names**", ", ".join(xc_names) if xc_names else None, bold_value=False)
+    
+    _add_row(rows, "**Code-specific tier**", sim_second.get('native_tier'), bold_value=False)
+    _add_row(rows, "**Basis set**", sim_second.get('basis_set'), bold_value=False)
+    _add_row(rows, "**Entry type**", metadata.get('entry_type'), bold_value=False)
+    _add_row(rows, "**Entry name**", metadata.get('entry_name'), bold_value=False)
+    
+    mainfile = metadata.get('mainfile')
+    _add_row(rows, "**Mainfile**", Path(mainfile).name if mainfile else None, bold_value=False)
+    
+    if not rows:
+        return ""
+
+    header = [
+        "- ## Calculation Metadata\n",
+        "    | Property                   | Value                                                      |",
+        "    |----------------------------|------------------------------------------------------------|",
+    ]
+    return "\n".join(header + rows)
+
+
+def _generate_final_energies_table(context: Dict[str, Any]) -> str:
+    """Generates the Markdown table for final energies."""
+    final_energies_ev = context.get('final_energies_ev', {})
+    if not final_energies_ev:
+        return ""
+    
+    rows = []
+    # Define preferred order and formatting
+    key_order = [
+        "total", "free", "total_t0", "fermi", 
+        "highest_occupied", "lowest_unoccupied", "band_gap"
+    ]
+    
+    # Custom labels for clarity
+    label_map = {
+        "total": "Total",
+        "free": "Free",
+        "total_t0": "Total (T=0)",
+        "fermi": "Fermi Energy",
+        "highest_occupied": "Highest Occupied (VBM)",
+        "lowest_unoccupied": "Lowest Unoccupied (CBM)",
+        "band_gap": "Band Gap"
+    }
+    
+    processed_keys = set()
+    
+    for key in key_order:
+        if key in final_energies_ev:
+            value = final_energies_ev[key]
+            label = label_map.get(key, key.replace('_', ' ').title())
+            rows.append(f"    | **{label}** | {value:.6f} |")
+            processed_keys.add(key)
+            
+    # Add any other keys not in the preferred list
+    for key, value in final_energies_ev.items():
+        if key not in processed_keys:
+            label = label_map.get(key, key.replace('_', ' ').title())
+            rows.append(f"    | {label} | {value:.6f} |")
+
+    table = [
+        "- ## Final Calculation Energies\n",
+        "    | Energy | Value (eV) |",
+        "    |---|---|",
+    ]
+    table.extend(rows)
+    return "\n".join(table)
+
+def _generate_scf_energies_table(context: Dict[str, Any]) -> str:
+    """Generates the Markdown table for SCF iteration energies."""
+    scf_table_data = context.get('scf_table_data', [])
+    if not scf_table_data:
+        return ""
+        
+    rows = []
+    for item in scf_table_data:
+        step = item['step']
+        
+        def fmt_val(v):
+            if v is None or np.isnan(v):
+                return "N/A"
+            return f"{v:.6f}"
+
+        total = fmt_val(item['total_ev'])
+        free = fmt_val(item['free_ev'])
+        total_t0 = fmt_val(item['total_t0_ev'])
+        rows.append(f"    | {step} | {total} | {free} | {total_t0} |")
+
+    table = [
+        "- ## SCF Iteration Energies\n",
+        "    | Step | Total Energy (eV) | Free Energy (eV) | Total Energy (T=0) (eV) |",
+        "    |:---|---:|---:|---:|",
+    ]
+    table.extend(rows)
+    return "\n".join(table)
+
+
+def generate_markdown(context: Dict[str, Any]) -> str:
+    """
+    Generates the full Markdown report string from the extracted context.
+    """
+    # Pull data from context for readability
+    metadata = context.get('metadata', {})
+    t_original_data = context.get('t_original_data', {})
+    t_cell_data = context.get('t_cell_data', {})
+
+    # --- Generate table strings ---
+    material_table = _generate_material_composition_table(context)
+    lattice_original_table = _generate_lattice_table(context, 'original_cell', t_original_data.get('label', 'unavailable'))
+    lattice_cell_table = _generate_lattice_table(context, 'cell_type_data', t_cell_data.get('label', 'unavailable'))
+    symmetry_table = _generate_symmetry_table(context)
+    kpoints_table = _generate_kpoints_table(context)
+    metadata_table = _generate_metadata_table(context)
+    final_energies_table = _generate_final_energies_table(context)
+    scf_energies_table = _generate_scf_energies_table(context)
+
+
+    # --- Main Markdown f-string ---
+    # This is now much cleaner, reading directly from the context.
     markdown_content = f"""
-{f"# {metadata.get('entry_name', 'FAIR Parsed Report')}"}
+# {metadata.get('entry_name', 'FAIR Parsed Report')}
 
 <div class="grid cards" markdown>
 
 {{{{ structure_viewer("fair-structure.json") }}}}
 
-- ## Material Composition - {t_original_data.get("label", "unavailable")}
-
-    | Property                     | Value                       |
-    |------------------------------|-----------------------------|
-    | Chemical formula (IUPAC)     | **{t_original_data.get("chemical_formula_iupac", "unavailable")}** |
-    | Chemical formula (Reduced)   | **{t_original_data.get("chemical_formula_reduced", "unavailable")}** |
-    | Label                       | **{t_original_data.get("label", "unavailable")}** |
-    | Elements                    | {', '.join(t_original_data.get("elements", [])) or "unavailable"} |
-    | Number of elements          | {len(t_original_data.get("elements", []))} |
-    | Number of atoms             | {t_original_data.get("n_atoms", "unavailable")} |
-    | Dimensionality              | **{t_original_data.get("dimensionality", "unavailable")}** |
-
+{material_table}
 
 </div>
     
 <div class="grid cards" markdown>
 
-- ## Lattice ({t_original_data.get("label", "unavailable")})
+{lattice_original_table}
 
-    | Lattice constant | Value     | Units |
-    |------------------|-----------|-------|
-    | a                | **{_format_field_numeric(original_cell.get("a"), "a")}** | Angstrom |
-    | b                | **{_format_field_numeric(original_cell.get("b"), "b")}** | Angstrom |
-    | c                | **{_format_field_numeric(original_cell.get("c"), "c")}** | Angstrom |
+{lattice_cell_table}
 
-    | Lattice angles    | Value     | Units |
-    |------------------|-----------|-------|
-    | Alpha            | **{_format_field_numeric(original_cell.get("alpha"), "alpha")}** | Degrees |
-    | Beta             | **{_format_field_numeric(original_cell.get("beta"), "beta")}** | Degrees |
-    | Gamma            | **{_format_field_numeric(original_cell.get("gamma"), "gamma")}** | Degrees |
+{symmetry_table}
 
-    | Cell quantities   | Value     | Units |
-    |------------------|-----------|-------|
-    | Volume           | **{_format_field_numeric(original_cell.get("volume"), "volume")}** | Å³ |
-    | Mass density     | **{_format_field_numeric(original_cell.get("mass_density"), "mass_density")}** | kg / Å³ |
-    | Atomic density   | **{_format_field_numeric(original_cell.get("atomic_density"), "atomic_density")}** | Å⁻³ |
-
-
-- ## Lattice ({t_cell_data.get("label", "unavailable")})
-
-    | Lattice constant | Value     | Units |
-    |------------------|-----------|-------|
-    | a                | **{_format_field_numeric(cell_type_data.get("a"), "a")}** | Angstrom |
-    | b                | **{_format_field_numeric(cell_type_data.get("b"), "b")}** | Angstrom |
-    | c                | **{_format_field_numeric(cell_type_data.get("c"), "c")}** | Angstrom |
-
-    | Lattice angles    | Value     | Units |
-    |------------------|-----------|-------|
-    | Alpha            | **{_format_field_numeric(cell_type_data.get("alpha"), "alpha")}** | Degrees |
-    | Beta             | **{_format_field_numeric(cell_type_data.get("beta"), "beta")}** | Degrees |
-    | Gamma            | **{_format_field_numeric(cell_type_data.get("gamma"), "gamma")}** | Degrees |
-
-    | Cell quantities   | Value     | Units |
-    |------------------|-----------|-------|
-    | Volume           | **{_format_field_numeric(cell_type_data.get("volume"), "volume")}** | Å³ |
-    | Mass density     | **{_format_field_numeric(cell_type_data.get("mass_density"), "mass_density")}** | kg / Å³ |
-    | Atomic density   | **{_format_field_numeric(cell_type_data.get("atomic_density"), "atomic_density")}** | Å⁻³ |
-
-- ## Symmetry ({t_cell_data.get("label", "unavailable")})
-
-    | Property                       | Value            |
-    |---------------------------------|------------------|
-    | Crystal system                  | **{t_cell_data_sym.get("crystal_system", "unavailable")}** |
-    | Bravais lattice                 | **{t_cell_data_sym.get("bravais_lattice", "unavailable")}** |
-    | Strukturbericht designation     | *{t_cell_data_sym.get("strukturbericht_designation", "unavailable")}* |
-    | Space group symbol              | **{t_cell_data_sym.get("space_group_symbol", "unavailable")}** |
-    | Space group number              | **{t_cell_data_sym.get("space_group_number", "unavailable")}** |
-    | Point group                     | **{t_cell_data_sym.get("point_group", "unavailable")}** |
-    | Hall number                     | **{t_cell_data_sym.get("hall_number", "unavailable")}** |
-    | Hall symbol                     | **{t_cell_data_sym.get("hall_symbol", "unavailable")}** |
-    | Prototype name                  | **{t_cell_data_sym.get("prototype_name", "unavailable")}** |
-    | Prototype label aflow           | **{t_cell_data_sym.get("prototype_label_aflow", "unavailable")}** |
-
-- ## K points information
-
-    | Property               | Value |
-    |------------------------|--------|
-    | Dimensionality         | **{k_mesh.get("dimensionality", "unavailable")}** |
-    | Sampling method        | **{k_mesh.get("sampling_method", "unavailable")}** |
-    | Number of points       | **{k_mesh.get("n_points", "unavailable")}** |
-    | Grid                   | **{k_mesh.get("grid", "unavailable")}** |
+{kpoints_table}
     
-- ## Calculation Metadata
+{metadata_table}
 
-    | Property                   | Value                                                      |
-    |----------------------------|------------------------------------------------------------|
-    | **Method name** | {method.get('method_name', 'unavailable')}                 |
-    | **Workflow name** | {method.get('workflow_name', 'unavailable')}               |
-    | **Program name** | {simulation.get('program_name', 'unavailable')}            |
-    | **Program version** | {_strip_parens(simulation.get('program_version', 'unavailable'))}         |
-    | **Basis set type** | {sim_first_nested_data.get('basis_set_type', 'unavailable')}|
-    | **Core electron treatment**| {sim_first_nested_data.get('core_electron_treatment', 'unavailable')}|
-    | **Jacob's ladder** | {sim_first_nested_data.get('jacobs_ladder', 'unavailable')}|
-    | **XC functional names** | {', '.join(sim_first_nested_data.get('xc_functional_names', [])) or 'unavailable'}|
-    | **Code-specific tier** | {sim_second_nested_data.get('native_tier', 'unavailable')} |
-    | **Basis set** | {sim_second_nested_data.get('basis_set', 'unavailable')}   |
-    | **Entry type** | {metadata.get('entry_type', 'unavailable')}                |
-    | **Entry name** | {metadata.get('entry_name', 'unavailable')}                |
-    | **Mainfile** | {Path(metadata.get('mainfile', 'unavailable')).name}                 |
+{final_energies_table}
+
+{scf_energies_table}
 
 </div>
 """
+    return markdown_content
 
-# - ## k-points and weights
-
-#     | kx | ky | kz | Weight |
-#     |---|---|---|---|
-# {table_md}
-
-
-    # --- Save the markdown report ---
+def save_report(content: str, input_path: Path, output_dir: Path):
+    """Saves the generated Markdown content to a file."""
     # The output name is based on the *input* JSON file name
-    base_name = input_path.stem # e.g., "fair_parsed_my_calc"
+    base_name = input_path.stem  # e.g., "fair_parsed_my_calc"
     summary_base_name = base_name.replace("fair_parsed_", "fair_summarized_")
     output_path = output_dir / f"{summary_base_name}.md"
 
     try:
+        output_dir.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
-            f.write(markdown_content)
+            f.write(content)
         log.info(f"Successfully generated markdown summary at: {output_path}")
     except Exception as e:
         log.error(f"Failed to write summary file: {e}")
 
+# --- Main Orchestration Function ---
+
+def run_summarization(input_path: Path, output_dir: Path, template_path: Optional[str] = None):
+    """
+    Generates summary reports (e.g., Markdown) from parsed or analyzed data.
+
+    Args:
+        input_path: Path to input JSON file (e.g., fair_parsed_vasprun.json).
+        output_dir: Directory to save the summary report.
+        template_path: Optional path to a custom template (not used here).
+    """
+    
+    # 1. Load Data
+    data = load_data(input_path)
+    if not data:
+        log.error("Aborting summarization due to data load failure.")
+        return
+
+    # 2. Extract Data
+    try:
+        context = extract_context(data)
+        log.info("Successfully extracted data context.")
+    except Exception as e:
+        log.error(f"Failed during data extraction: {e}", exc_info=True)
+        return
+
+    # 3. Generate Markdown
+    try:
+        markdown_content = generate_markdown(context)
+        log.info("Successfully generated Markdown content.")
+    except Exception as e:
+        log.error(f"Failed during Markdown generation: {e}", exc_info=True)
+        return
+
+    # 4. Save Report
+    save_report(markdown_content, input_path, output_dir)
+
     log.info("Summarization process completed.")
+
+# --- Example Usage (if run as a script) ---
+if __name__ == "__main__":
+    # Configure logging for standalone script testing
+    logging.basicConfig(level=logging.INFO,
+                        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    
+    # Define dummy paths for testing
+    # Assumes 'fair_parsed_vasprun.json' is in the same directory
+    # and we want to output to a 'summary_output' directory
+    
+    script_dir = Path(__file__).parent
+    test_input = script_dir / "fair_parsed_vasprun.json"
+    test_output_dir = script_dir / "summary_output"
+    
+    log.info(f"Running summarization for: {test_input}")
+    if test_input.exists():
+        run_summarization(test_input, test_output_dir)
+    else:
+        log.error(f"Test input file not found: {test_input}")
+
