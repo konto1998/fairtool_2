@@ -435,7 +435,7 @@ def export(
 
 
 @app.command(rich_help_panel="Processing")
-def visualize(
+def visualize2(
     input_path: Annotated[Path, typer.Argument(
         help="Path to parsed data (Markdown/directory) containing structures, and other summary data.",
          exists=True,
@@ -508,6 +508,28 @@ def visualize(
         except Exception as e:
             log.error(f"Failed to start localhost server: {e}", exc_info=False)
             raise typer.Exit(code=1)
+
+@app.command(rich_help_panel="Processing")
+def visualize(
+    port: Annotated[int, typer.Option(
+        "--port", "-p",
+        help="Port number for the localhost visualization server."
+    )] = 8000,
+):
+    """
+    Launch the FAIR visualization application.
+
+    - Uses ~/.fairtool/visualize_app as the persistent MkDocs project.
+    - On first run: initializes the app and builds calculation pages.
+    - On later runs: asks whether to recalculate or reuse existing pages.
+    """
+    from . import visualize as visualize_module
+
+    try:
+        visualize_module.visualize_cli(port=port)
+    except Exception as e:
+        log.error(f"Visualization failed: {e}", exc_info=True)
+        raise typer.Exit(code=1)
 
 
 @app.command(rich_help_panel="Automated Workflow")

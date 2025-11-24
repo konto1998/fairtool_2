@@ -1,205 +1,356 @@
 # fairtool/visualize.py
+"""
+Handles generation of data for visualizations.
 
-"""Handles generation of data for visualizations."""
+This module provides:
+
+- A persistent MkDocs-based visualization app, initialized once under:
+      ~/.fairtool/visualize_app/
+  and served via `fair visualize` (see `visualize_cli`).
+
+- Discovery of "calculation folders" on the filesystem that contain:
+    * parsed JSON files,
+    * summarized Markdown files,
+    * structure JSON files,
+
+  which are then exposed as pages under the MkDocs site.
+
+- Helper functions (get_structure_data, get_band_structure_data, get_dos_data)
+  that can be used later to extract visualization data directly from parsed JSON.
+"""
+
+from __future__ import annotations
 
 import json
 import logging
-from pathlib import Path
-from typing import Optional
-import tempfile
+import os
+import re
 import shutil
 import subprocess
-import re
 import sys
-from datetime import datetime
+from dataclasses import dataclass
+from pathlib import Path
+from typing import List, Optional
 
-log = logging.getLogger(__name__)
+log = logging.getLogger("fairtool")
 
 # Essential: pymatgen for structure/band/DOS objects
 try:
     from pymatgen.core import Structure
-    from pymatgen.io.ase import AseAtomsAdaptor # If parser gives ASE Atoms
-    # Import other relevant pymatgen modules (BandStructureSymmLine, CompleteDos, etc.)
+    from pymatgen.io.ase import AseAtomsAdaptor  # If parser gives ASE Atoms
     # from pymatgen.electronic_structure.bandstructure import BandStructureSymmLine
     # from pymatgen.electronic_structure.dos import CompleteDos
 except ImportError:
-    # log.warning("Pymatgen not found. Visualization capabilities will be limited. Install with `pip install pymatgen`")
-    Structure = None # Define as None to allow checks later
+    # Pymatgen is optional: visualization will be limited if missing.
+    Structure = None
     AseAtomsAdaptor = None
 
-log = logging.getLogger("fairtool")
+# Persistent app root for the visualization site
+APP_ROOT = Path.home() / ".fairtool" / "visualize_app"
 
-# --- Data Preparation Functions ---
 
-def _hr_size(num_bytes: int) -> str:
-    """Human readable file size."""
-    for unit in ['B','KB','MB','GB','TB']:
-        if num_bytes < 1024.0:
-            return f"{num_bytes:.1f} {unit}"
-        num_bytes /= 1024.0
-    return f"{num_bytes:.1f} PB"
+# ---------------------------------------------------------------------------
+# Data structures & basic helpers
+# ---------------------------------------------------------------------------
 
-def _extract_title(file_path):
-    """Return title from markdown (# Heading) or HTML (<title>) file."""
+@dataclass
+class CalculationFolder:
+    """
+    Represents a folder that contains a complete FAIR calculation set.
+
+    Attributes
+    ----------
+    folder : Path
+        Path to the calculation folder.
+    parsed_json : list[Path]
+        List of parsed JSON files belonging to the calculation.
+    summarized_md : list[Path]
+        List of summarized Markdown files belonging to the calculation.
+    structure_json : Path
+        Path to a structure JSON file used by the viewer.
+    """
+    folder: Path
+    parsed_json: List[Path]
+    summarized_md: List[Path]
+    structure_json: Path
+
+    @property
+    def name(self) -> str:
+        """Folder name (last path component)."""
+        return self.folder.name
+
+    @property
+    def rel_to_home(self) -> Path:
+        """
+        Folder path relative to the user's home directory, if possible.
+        Falls back to the absolute path if not under HOME.
+        """
+        try:
+            return self.folder.relative_to(Path.home())
+        except Exception:
+            return self.folder
+
+from datetime import datetime
+
+def _hr_size(n: int) -> str:
+    """Human-readable file size."""
+    units = ["B", "KB", "MB", "GB", "TB"]
+    size = float(n)
+    for u in units:
+        if size < 1024:
+            return f"{size:.1f} {u}"
+        size /= 1024
+    return f"{size:.1f} PB"
+
+def _extract_title(path: Path) -> str:
+    """Extract first markdown/HTML heading."""
     try:
-        with open(file_path, encoding="utf-8") as fh:
-            text = fh.read(4096)  # Read only the first 4KB for speed
-            # Markdown H1 title
-            match = re.search(r'^\s*#\s+(.+)', text, re.MULTILINE)
-            if match:
-                return match.group(1).strip()
-            # HTML <title>...</title>
-            match = re.search(r'<title>(.*?)</title>', text, re.IGNORECASE)
-            if match:
-                return match.group(1).strip()
-    except Exception:
+        text = path.read_text(encoding="utf-8")
+        for line in text.splitlines():
+            if line.startswith("#"):
+                return line.lstrip("#").strip()
+    except:
         pass
-    return "—"
+    return "(no title)"
 
+
+def is_parsed_json(name: str) -> bool:
+    """
+    Check whether a filename corresponds to a parsed vasprun JSON.
+
+    Rules:
+      - endswith '.json'
+      - contains 'vasprun'
+      - contains 'parsed'
+    """
+    name = name.lower()
+    return name.endswith(".json") and "vasprun" in name and "parsed" in name
+
+
+def is_summarized_md(name: str) -> bool:
+    """
+    Check whether a filename corresponds to a summarized vasprun Markdown.
+
+    Rules:
+      - endswith '.md'
+      - contains 'vasprun'
+      - contains 'summarized'
+    """
+    name = name.lower()
+    return name.endswith(".md") and "vasprun" in name and "summarized" in name
+
+
+def is_structure_json(name: str) -> bool:
+    """
+    Check whether a filename corresponds to a structure JSON file.
+
+    Rule:
+      - endswith '.json'
+      - contains 'structure'
+    """
+    name = name.lower()
+    return name.endswith(".json") and "structure" in name
+
+
+def slugify(name: str, idx: int) -> str:
+    """
+    Convert a folder name into a filesystem- and URL-safe slug.
+
+    The slug is made unique by appending a zero-padded index.
+
+    Examples
+    --------
+    >>> slugify("SrTiO3-relaxed", 1)
+    'SrTiO3-relaxed-001'
+    """
+    base = re.sub(r"[^a-zA-Z0-9_-]+", "-", name) or "calc"
+    return f"{base}-{idx:03d}"
+
+
+# ---------------------------------------------------------------------------
+# (Future) data extraction helpers from parsed JSON
+# ---------------------------------------------------------------------------
 
 def get_structure_data(parsed_data: dict) -> Optional[dict]:
     """
-    Extracts structure data from parsed output and formats it for visualization
-    (e.g., in a format compatible with Materials Project React components or pymatgen).
+    Extract structure data from parsed output and format it for visualization.
 
-    Args:
-        parsed_data: The dictionary loaded from the parser's JSON output.
+    This function is designed to work with electronic-parsers style output,
+    but is written defensively so that missing keys simply result in None.
 
-    Returns:
-        A dictionary containing structure information (e.g., pymatgen Structure as dict,
-        or a custom format suitable for your React components), or None if not found.
+    Parameters
+    ----------
+    parsed_data : dict
+        Dictionary loaded from the parser's JSON output.
+
+    Returns
+    -------
+    dict or None
+        A dictionary containing structure information (e.g., pymatgen Structure
+        as dict), or None if no usable structure was found or pymatgen is not
+        available.
     """
     if not Structure:
         log.warning("Pymatgen not available, cannot process structure data.")
         return None
 
-    log.debug("Attempting to extract structure data...")
+    log.debug("Attempting to extract structure data from parsed JSON...")
     structure = None
     try:
-        # --- Strategy 1: Look for pymatgen structure directly (ideal if parser provides it) ---
-        # This depends heavily on electronic-parsers output format. Check its documentation.
-        # Example hypothetical path:
-        pmg_structure_dict = parsed_data.get("results", {}).get("properties", {}).get("structure", {}).get("pymatgen_structure")
+        # Strategy 1: direct pymatgen structure dict
+        pmg_structure_dict = (
+            parsed_data.get("results", {})
+            .get("properties", {})
+            .get("structure", {})
+            .get("pymatgen_structure")
+        )
         if pmg_structure_dict:
             structure = Structure.from_dict(pmg_structure_dict)
             log.debug("Found structure data (pymatgen format).")
 
-        # --- Strategy 2: Look for primitive structure / ASE atoms ---
-        # Example hypothetical path for ASE Atoms object (needs AseAtomsAdaptor)
+        # Strategy 2: ASE atoms reconstruction or basic lattice/species/coords
         elif AseAtomsAdaptor:
-             ase_atoms_dict = parsed_data.get("results", {}).get("properties", {}).get("structure", {}).get("ase_atoms")
-             if ase_atoms_dict and hasattr(AseAtomsAdaptor, 'get_atoms'): # Check method exists
-                 # Need to reconstruct ASE Atoms object first if stored as dict
-                 # This part is complex and depends on how ASE atoms are serialized
-                 # atoms = ase.io.jsonio.read_json(io.StringIO(json.dumps(ase_atoms_dict))) # Hypothetical
-                 # structure = AseAtomsAdaptor.get_structure(atoms)
-                 log.warning("ASE Atoms reconstruction from JSON not fully implemented.") # Placeholder
-             else:
-                 # Look for basic lattice vectors and atomic positions
-                 # Example path (adjust based on parser output):
-                 lattice_vectors = parsed_data.get("results", {}).get("properties", {}).get("structure", {}).get("lattice_vectors")
-                 species = parsed_data.get("results", {}).get("properties", {}).get("structure", {}).get("species_at_sites")
-                 coords = parsed_data.get("results", {}).get("properties", {}).get("structure", {}).get("cartesian_site_positions") # Or fractional
-                 coords_are_cartesian = True # Assume cartesian, adjust if fractional
+            ase_atoms_dict = (
+                parsed_data.get("results", {})
+                .get("properties", {})
+                .get("structure", {})
+                .get("ase_atoms")
+            )
+            if ase_atoms_dict and hasattr(AseAtomsAdaptor, "get_atoms"):
+                # NOTE: Actual ASE reconstruction depends on how it was serialized
+                # and is left as a placeholder here.
+                log.warning(
+                    "ASE Atoms reconstruction from JSON not fully implemented; "
+                    "structure extraction via ASE is currently a placeholder."
+                )
+            else:
+                lattice_vectors = (
+                    parsed_data.get("results", {})
+                    .get("properties", {})
+                    .get("structure", {})
+                    .get("lattice_vectors")
+                )
+                species = (
+                    parsed_data.get("results", {})
+                    .get("properties", {})
+                    .get("structure", {})
+                    .get("species_at_sites")
+                )
+                coords = (
+                    parsed_data.get("results", {})
+                    .get("properties", {})
+                    .get("structure", {})
+                    .get("cartesian_site_positions")
+                )
+                coords_are_cartesian = True
 
-                 if lattice_vectors and species and coords:
-                     log.debug("Found basic structure data (lattice, species, coords).")
-                     structure = Structure(
-                         lattice=lattice_vectors,
-                         species=species,
-                         coords=coords,
-                         coords_are_cartesian=coords_are_cartesian
-                     )
-                 else:
-                    log.warning("Could not find sufficient structure data in parsed output.")
+                if lattice_vectors and species and coords:
+                    log.debug(
+                        "Found basic structure data (lattice vectors, species, coords)."
+                    )
+                    structure = Structure(
+                        lattice=lattice_vectors,
+                        species=species,
+                        coords=coords,
+                        coords_are_cartesian=coords_are_cartesian,
+                    )
+                else:
+                    log.warning(
+                        "Could not find sufficient structure data in parsed output."
+                    )
                     return None
 
         if structure:
-             # Convert pymatgen Structure to a dictionary suitable for JSON serialization
-             # This is often needed for passing data to JavaScript/React
-             return structure.as_dict()
-        else:
-            return None
+            return structure.as_dict()
+        return None
 
-    except Exception as e:
-        log.error(f"Error processing structure data: {e}", exc_info=True)
+    except Exception as exc:  # pragma: no cover - defensive
+        log.error("Error processing structure data: %s", exc, exc_info=True)
         return None
 
 
 def get_band_structure_data(parsed_data: dict) -> Optional[dict]:
-    """ Extracts and formats band structure data. (Placeholder) """
-    log.debug("Attempting to extract band structure data...")
-    # TODO: Implement logic similar to get_structure_data
-    # - Look for BandStructureSymmLine object (ideal)
-    # - Look for raw k-points, eigenvalues, labels
-    # - Format into a dictionary suitable for plotting (e.g., segments, energies)
-    #   compatible with your React component.
+    """
+    Extract band structure data from parsed JSON.
+
+    Currently implemented as a placeholder that returns any nested dictionary
+    stored under 'pymatgen_bandstructure'.
+    """
+    log.debug("Attempting to extract band structure data from parsed JSON...")
     try:
-        # Example hypothetical path for pymatgen BS object
-        bs_dict = parsed_data.get("results", {}).get("properties", {}).get("electronic", {}).get("band_structure", {}).get("pymatgen_bandstructure")
+        bs_dict = (
+            parsed_data.get("results", {})
+            .get("properties", {})
+            .get("electronic", {})
+            .get("band_structure", {})
+            .get("pymatgen_bandstructure")
+        )
         if bs_dict:
-             # Potentially needs further processing or just return the dict
-             log.debug("Found band structure data (pymatgen format).")
-             # from pymatgen.electronic_structure.bandstructure import BandStructureSymmLine
-             # bs = BandStructureSymmLine.from_dict(bs_dict)
-             # return bs.as_dict() # Or a custom format
-             return bs_dict # Return as is for now
-        else:
-            log.warning("Band structure data not found or format not recognized.")
-            return None
-    except Exception as e:
-        log.error(f"Error processing band structure data: {e}", exc_info=True)
+            log.debug("Found band structure data (pymatgen format).")
+            # In future, you may reconstruct a BandStructureSymmLine and
+            # return bs.as_dict() or a custom representation here.
+            return bs_dict
+        log.warning("Band structure data not found or format not recognized.")
         return None
+
+    except Exception as exc:  # pragma: no cover - defensive
+        log.error("Error processing band structure data: %s", exc, exc_info=True)
+        return None
+
 
 def get_dos_data(parsed_data: dict) -> Optional[dict]:
-    """ Extracts and formats Density of States (DOS) data. (Placeholder) """
-    log.debug("Attempting to extract DOS data...")
-    # TODO: Implement logic similar to get_structure_data
-    # - Look for CompleteDos object (ideal)
-    # - Look for raw energy levels and DOS values
-    # - Format into a dictionary suitable for plotting
+    """
+    Extract density of states (DOS) data from parsed JSON.
+
+    Currently implemented as a placeholder that returns any nested dictionary
+    stored under 'pymatgen_dos'.
+    """
+    log.debug("Attempting to extract DOS data from parsed JSON...")
     try:
-        # Example hypothetical path for pymatgen DOS object
-        dos_dict = parsed_data.get("results", {}).get("properties", {}).get("electronic", {}).get("dos", {}).get("pymatgen_dos")
+        dos_dict = (
+            parsed_data.get("results", {})
+            .get("properties", {})
+            .get("electronic", {})
+            .get("dos", {})
+            .get("pymatgen_dos")
+        )
         if dos_dict:
-             log.debug("Found DOS data (pymatgen format).")
-             # from pymatgen.electronic_structure.dos import CompleteDos
-             # dos = CompleteDos.from_dict(dos_dict)
-             # return dos.as_dict() # Or a custom format
-             return dos_dict # Return as is for now
-        else:
-            log.warning("DOS data not found or format not recognized.")
-            return None
-    except Exception as e:
-        log.error(f"Error processing DOS data: {e}", exc_info=True)
+            log.debug("Found DOS data (pymatgen format).")
+            # In future, you may reconstruct a CompleteDos and return
+            # dos.as_dict() or a custom representation here.
+            return dos_dict
+        log.warning("DOS data not found or format not recognized.")
         return None
 
+    except Exception as exc:  # pragma: no cover - defensive
+        log.error("Error processing DOS data: %s", exc, exc_info=True)
+        return None
 
-# --- Markdown Embedding ---
 
 def generate_markdown_embedding(data_file_path: Path, viz_type: str, component_id: str) -> str:
     """
-    Generates a Markdown snippet to embed a visualization using a hypothetical React component.
+    Generate a Markdown snippet to embed a visualization (React-based).
 
-    Args:
-        data_file_path: Path to the JSON data file for the visualization (relative path preferred).
-        viz_type: Type of visualization ('structure', 'bands', 'dos').
-        component_id: A unique ID for the HTML element where the component will mount.
+    This helper assumes your MkDocs site has JavaScript that scans for
+    <div> elements with class 'react-viz-mount' and uses data attributes
+    to mount the appropriate React component.
 
-    Returns:
-        A Markdown string containing HTML/JS to load the component.
+    Parameters
+    ----------
+    data_file_path : Path
+        Path to the JSON data file (relative or absolute).
+    viz_type : str
+        Type of visualization (e.g. 'structure', 'bands', 'dos').
+    component_id : str
+        A unique HTML id for the mount point.
+
+    Returns
+    -------
+    str
+        Markdown string containing an HTML block.
     """
-    # IMPORTANT: This is highly dependent on how your mkdocs site is set up
-    # and how the React components are loaded and used.
-    # This example assumes:
-    # 1. You have JavaScript on your mkdocs site that looks for divs with a specific class (e.g., 'react-viz-mount').
-    # 2. This script reads data attributes (data-viz-type, data-src, data-id).
-    # 3. It then dynamically loads and renders the appropriate React component into the div.
+    relative_data_path = data_file_path.name
 
-    # Use relative path for embedding in mkdocs if possible
-    relative_data_path = data_file_path.name # Simplistic, might need better relative path logic
-
-    # Customize the HTML structure and data attributes based on your actual JS implementation
     snippet = f"""
 <div
   id="{component_id}"
@@ -209,681 +360,615 @@ def generate_markdown_embedding(data_file_path: Path, viz_type: str, component_i
   style="width: 100%; height: 400px; border: 1px solid #ccc; margin-bottom: 1em; border-radius: 8px;"
 >
   Loading {viz_type} visualization...
-  </div>
+</div>
 
 """
     return snippet
 
-# --- Main Execution Logic ---
 
-def run_visualization(input_path: Path, output_dir: Path, embed: bool):
-    """
-    Generates visualization data (JSON) and optionally Markdown embedding snippets.
+# ---------------------------------------------------------------------------
+# Discover calculation folders
+# ---------------------------------------------------------------------------
 
-    Args:
-        input_path: Path to parsed JSON file or directory.
-        output_dir: Directory to save visualization JSON files and Markdown snippets.
-        embed: Whether to generate Markdown embedding snippets.
+def discover_calculations(root: Path) -> List[CalculationFolder]:
     """
-    # --- Find input files ---
-    if input_path.is_file() and input_path.suffix == '.json':
-        files_to_process = [input_path]
-    elif input_path.is_dir():
-        log.info(f"Searching for parsed JSON files (*_parsed.json) in: {input_path}")
-        files_to_process = sorted(list(input_path.rglob("*_parsed.json")))
-        if not files_to_process:
-            #  log.warning(f"No '*_parsed.json' files found in {input_path}")
-             return
-    else:
-        log.error(f"Input path must be a JSON file or a directory containing them: {input_path}")
+    Recursively scan `root` for folders containing a complete FAIR set.
+
+    A folder is considered a valid FAIR calculation if it contains:
+
+      - >= 1 parsed JSON  (filename: contains 'vasprun' and 'parsed', endswith '.json')
+      - >= 1 summarized MD (filename: contains 'vasprun' and 'summarized', endswith '.md')
+      - >= 1 structure JSON (filename: contains 'structure', endswith '.json')
+      - len(parsed_json) == len(summarized_md)
+
+    Only the first structure JSON is used for now.
+
+    Parameters
+    ----------
+    root : Path
+        Root directory to scan.
+
+    Returns
+    -------
+    list[CalculationFolder]
+        List of discovered calculation folders.
+    """
+    log.info("Scanning for calculation folders under: %s", root)
+    results: List[CalculationFolder] = []
+
+    for dirpath, _, files in os.walk(root):
+        folder = Path(dirpath)
+
+        parsed = [folder / f for f in files if is_parsed_json(f)]
+        summarized = [folder / f for f in files if is_summarized_md(f)]
+        structures = [folder / f for f in files if is_structure_json(f)]
+
+        if not parsed or not summarized or not structures:
+            continue
+        if len(parsed) != len(summarized):
+            continue
+
+        parsed.sort()
+        summarized.sort()
+
+        structure_json = structures[0]
+
+        results.append(
+            CalculationFolder(
+                folder=folder,
+                parsed_json=parsed,
+                summarized_md=summarized,
+                structure_json=structure_json,
+            )
+        )
+
+    log.info("Found %d valid calculation folder(s).", len(results))
+    return results
+
+
+# ---------------------------------------------------------------------------
+# Build MkDocs nav tree from CalculationFolders
+# ---------------------------------------------------------------------------
+
+def build_nav_tree(calcs: List[CalculationFolder]) -> List[dict]:
+    """
+    Build a nested folder tree from CalculationFolder paths and convert it to
+    a MkDocs 'nav' structure.
+
+    Grouping is based on folder paths relative to the user's home directory.
+    """
+    home = Path.home()
+    tree: dict = {}
+
+    # Build a nested dictionary representing the folder structure
+    for idx, calc in enumerate(calcs, start=1):
+        slug = slugify(calc.name, idx)
+        page_ref = f"calculations/{slug}.md"
+
+        try:
+            rel = calc.folder.relative_to(home)
+        except ValueError:
+            rel = calc.folder
+
+        parts = list(rel.parts)
+        node = tree
+        for part in parts:
+            node = node.setdefault(part, {})
+
+        # mark leaf node
+        node["__page__"] = page_ref
+
+    def convert(node: dict) -> List[dict]:
+        """
+        Convert an internal tree node into a MkDocs nav list.
+
+        Leaf nodes with only a page entry become {label: page}.
+        Intermediate nodes become {label: [children...]}, optionally with
+        an extra "(root)" entry if both a page and children exist.
+        """
+        nav_list: List[dict] = []
+
+        for key, sub in sorted(node.items()):
+            if key == "__page__":
+                continue
+
+            if "__page__" in sub and len(sub) == 1:
+                nav_list.append({key: sub["__page__"]})
+            else:
+                nav_list.append({key: convert(sub)})
+
+        if "__page__" in node and len(node) > 1:
+            nav_list.append({"(root)": node["__page__"]})
+
+        return nav_list
+
+    return convert(tree)
+
+
+# ---------------------------------------------------------------------------
+# App base: copy documentation & styling once
+# ---------------------------------------------------------------------------
+
+def initialize_app_root(app_root: Path) -> None:
+    """
+    Initialize the persistent visualization application directory.
+
+    On first run, the packaged documentation (mkdocs.yml, docs/, material/,
+    macros.py, etc.) is copied into `app_root`. Subsequent runs reuse it.
+    """
+    if app_root.exists():
         return
 
-    log.info(f"Found {len(files_to_process)} JSON file(s) to process for visualization.")
+    log.info("Initializing visualization application at: %s", app_root)
+    app_root.parent.mkdir(parents=True, exist_ok=True)
 
-    md_snippets = [] # Collect markdown snippets if embed is True
-
-    for file in files_to_process:
-        log.info(f"Processing for visualization: {file.name}")
-        base_name = file.stem.replace("_parsed", "") # Get cleaner base name
-        viz_data_found = False
-
-        try:
-            with open(file, 'r') as f:
-                parsed_data = json.load(f)
-
-            # --- Generate Structure Visualization Data ---
-            structure_viz_data = get_structure_data(parsed_data)
-            if structure_viz_data:
-                viz_data_found = True
-                output_file = output_dir / f"{base_name}_structure.json"
-                log.info(f"Saving structure visualization data to: {output_file.name}")
-                with open(output_file, 'w') as f:
-                    json.dump(structure_viz_data, f, indent=2)
-                if embed:
-                    component_id = f"viz-struct-{base_name}"
-                    md_snippets.append(f"### Structure: `{base_name}`\n")
-                    md_snippets.append(generate_markdown_embedding(output_file, "structure", component_id))
-                    md_snippets.append("\n")
-
-
-            # --- Generate Band Structure Visualization Data ---
-            bands_viz_data = get_band_structure_data(parsed_data)
-            if bands_viz_data:
-                viz_data_found = True
-                output_file = output_dir / f"{base_name}_bands.json"
-                log.info(f"Saving band structure visualization data to: {output_file.name}")
-                with open(output_file, 'w') as f:
-                    json.dump(bands_viz_data, f, indent=2)
-                if embed:
-                    component_id = f"viz-bands-{base_name}"
-                    md_snippets.append(f"### Band Structure: `{base_name}`\n")
-                    md_snippets.append(generate_markdown_embedding(output_file, "bands", component_id))
-                    md_snippets.append("\n")
-
-            # --- Generate DOS Visualization Data ---
-            dos_viz_data = get_dos_data(parsed_data)
-            if dos_viz_data:
-                viz_data_found = True
-                output_file = output_dir / f"{base_name}_dos.json"
-                log.info(f"Saving DOS visualization data to: {output_file.name}")
-                with open(output_file, 'w') as f:
-                    json.dump(dos_viz_data, f, indent=2)
-                if embed:
-                    component_id = f"viz-dos-{base_name}"
-                    md_snippets.append(f"### Density of States: `{base_name}`\n")
-                    md_snippets.append(generate_markdown_embedding(output_file, "dos", component_id))
-                    md_snippets.append("\n")
-
-            if not viz_data_found:
-                 log.warning(f"No suitable visualization data (structure, bands, DOS) found in {file.name}")
-
-
-        except json.JSONDecodeError:
-            log.error(f"Failed to decode JSON from {file.name}. Skipping.")
-            continue
-        except Exception as e:
-            log.error(f"Error processing {file.name} for visualization: {e}", exc_info=True)
-            # Decide whether to continue or stop
-
-    # --- Save Markdown Snippets File ---
-    if embed and md_snippets:
-        md_output_file = output_dir / "visualization_embeds.md"
-        log.info(f"Saving all Markdown embedding snippets to: {md_output_file}")
-        try:
-            with open(md_output_file, 'w', encoding='utf-8') as f:
-                f.write(f"# Visualization Embeddings\n\n")
-                f.write(f"Place the generated JSON files (e.g., `{base_name}_structure.json`) in a location accessible by your mkdocs site (e.g., within the `docs/assets/viz_data/` directory).\n\n")
-                f.write(f"Ensure your mkdocs site has the necessary JavaScript to find `div.react-viz-mount` elements and render the appropriate React components using the `data-src` attribute.\n\n")
-                f.write("---\n\n")
-                f.write("\n".join(md_snippets))
-        except Exception as e:
-            log.error(f"Failed to save Markdown snippets file: {e}")
-
-    log.info("Visualization data generation process completed.")
-
-
-def serve_docs(docs_path: Path, port: int = 8000, dry_run: bool = False, build: bool = False, build_dir: Optional[Path] = None):
-    """
-    Launch an mkdocs server that uses the package's documentation styling (mkdocs.yml,
-    macros.py, theme overrides) while scanning `docs_path` for the markdown files.
-
-    This function creates a temporary mkdocs config that points `docs_dir` to the
-    provided `docs_path` while keeping the rest of the packaged `mkdocs.yml` and
-    ensuring `macros.py` is placed next to the config file as required by the
-    macros plugin.
-    """
-    docs_path = Path(docs_path).resolve()
-    if not docs_path.exists():
-        log.error(f"Docs path does not exist: {docs_path}")
-        raise SystemExit(1)
-
-    # Locate the package's top-level documentation directory relative to this file
     package_root = Path(__file__).resolve().parent.parent
-    packaged_docs = package_root / "documentation"
-    packaged_mkdocs = packaged_docs / "mkdocs.yml"
-    packaged_macros = packaged_docs / "macros.py"
+    doc_root = package_root / "documentation"
 
-    if not packaged_mkdocs.exists():
-        log.error(f"Packaged mkdocs.yml not found at expected location: {packaged_mkdocs}")
-        raise SystemExit(1)
+    if not doc_root.exists():
+        raise RuntimeError(f"Packaged documentation not found at {doc_root}")
+    
+    shutil.copytree(doc_root, app_root, dirs_exist_ok=True)
+    log.info("Copied documentation from %s to %s", doc_root, app_root)
 
-    # Create a temporary directory to host the modified mkdocs config (and macros)
-    temp_dir = Path(tempfile.mkdtemp(prefix="fairtool-mkdocs-"))
+
+# ---------------------------------------------------------------------------
+# Calculation pages & structure JSON copying
+# ---------------------------------------------------------------------------
+
+def write_calculation_pages(app_root: Path, calcs: List[CalculationFolder]) -> None:
+    """
+    Create Markdown pages for each CalculationFolder inside the app.
+
+    For each calculation:
+      - Copy a summarized Markdown file into docs/calculations/<slug>.md
+      - Copy the structure JSON into docs/_structures/<slug>/<name>.json
+      - Rewrite any structure_viewer("...") calls inside the summary so they
+        point to the copied structure JSON path: /_structures/<slug>/<name>.json
+      - Add a light metadata and structure info section based on parsed JSON
+        and the structure JSON.
+    """
+    docs_dir = app_root / "docs"
+    calc_dir = docs_dir / "calculations"
+    struct_root = docs_dir / "_structures"
+
+    # Reset calculations and structures folders
+    if calc_dir.exists():
+        shutil.rmtree(calc_dir)
+    calc_dir.mkdir(parents=True, exist_ok=True)
+
+    if struct_root.exists():
+        shutil.rmtree(struct_root)
+    struct_root.mkdir(parents=True, exist_ok=True)
+
+    index_lines = [
+        "# Calculations",
+        "",
+        "Detected FAIR calculation folders:",
+        "",
+        "| Name | Folder |",
+        "|------|--------|",
+    ]
+
+    def fix_structure_macro(
+        summary_text: str,
+        struct_site_path: str,
+        calc: CalculationFolder,
+    ) -> str:
+        """
+        Replace structure_viewer(\"...\") calls with a path into docs/_structures.
+
+        Parameters
+        ----------
+        summary_text : str
+            Original summary Markdown.
+        struct_site_path : str
+            Root-relative path to the structure JSON, e.g.
+            '/_structures/<slug>/structure.json'.
+        calc : CalculationFolder
+            The calculation this summary belongs to.
+        """
+        pattern = r'structure_viewer\(\s*[\'"][^\'"]+[\'"]\s*\)'
+        replacement = f'structure_viewer("{struct_site_path}")'
+
+        new_text = re.sub(pattern, replacement, summary_text)
+
+        if new_text == summary_text:
+            log.warning(
+                "[fix_structure_macro] No structure_viewer() macro updated for %s",
+                calc.folder,
+            )
+        else:
+            log.info(
+                "[fix_structure_macro] structure_viewer() macro updated for %s -> %s",
+                calc.folder,
+                struct_site_path,
+            )
+
+        return new_text
+
+    # Generate pages
+    for idx, calc in enumerate(calcs, start=1):
+        slug = slugify(calc.name, idx)
+        page_path = calc_dir / f"{slug}.md"
+
+        index_lines.append(
+            f"| [{calc.name}](./{slug}.md) | `{calc.rel_to_home}` |"
+        )
+
+        struct_target_dir = struct_root / slug
+        struct_target_dir.mkdir(parents=True, exist_ok=True)
+
+        struct_target = struct_target_dir / calc.structure_json.name
+        try:
+            shutil.copy2(calc.structure_json, struct_target)
+            log.info(
+                "Copied structure JSON for %s -> %s",
+                calc.folder,
+                struct_target,
+            )
+        except Exception as exc:
+            log.error(
+                "Failed to copy structure JSON for %s: %s",
+                calc.folder,
+                exc,
+            )
+            struct_target = None
+
+        struct_site_path: Optional[str] = None
+        if struct_target is not None:
+            struct_site_path = f"/_structures/{slug}/{calc.structure_json.name}"
+
+        lines: List[str] = []
+        lines.append(f"# {calc.name}\n")
+        lines.append(f"**Folder:** `{calc.rel_to_home}`\n")
+
+        # Summary section
+        lines.append("\n## Summary (from fair_summarized_vasprun.md)\n")
+
+        try:
+            summary_text = calc.summarized_md[0].read_text(encoding="utf-8")
+            if struct_site_path:
+                summary_text = fix_structure_macro(summary_text, struct_site_path, calc)
+            lines.append(summary_text.strip() + "\n")
+        except Exception as exc:
+            lines.append(f"*Unable to read summary Markdown: {exc}*\n")
+
+        # Parsed JSON metadata (lightweight)
+        lines.append("\n## Calculation Metadata (parsed JSON)\n")
+
+        parsed_obj = None
+        try:
+            parsed_obj = json.loads(
+                calc.parsed_json[0].read_text(encoding="utf-8")
+            )
+        except Exception as exc:
+            log.warning(
+                "Unable to parse parsed JSON for %s: %s", calc.folder, exc
+            )
+            lines.append("*Unable to parse parsed JSON.*\n")
+
+        if parsed_obj:
+            code = parsed_obj.get("program", parsed_obj.get("code_name", ""))
+            version = parsed_obj.get("program_version", parsed_obj.get("version", ""))
+            entry = parsed_obj.get("entry_name", parsed_obj.get("entry", ""))
+            workflow = parsed_obj.get("workflow_name", parsed_obj.get("workflow", ""))
+            method = parsed_obj.get("method_name", parsed_obj.get("method", ""))
+
+            lines.append("| Property | Value |")
+            lines.append("|----------|-------|")
+            if method:
+                lines.append(f"| Method | {method} |")
+            if workflow:
+                lines.append(f"| Workflow | {workflow} |")
+            if code:
+                lines.append(f"| Program | {code} |")
+            if version:
+                lines.append(f"| Version | {version} |")
+            if entry:
+                lines.append(f"| Entry Name | {entry} |")
+            lines.append("")
+
+        # Basic structure info (optional, not a full viewer)
+        lines.append("## Structure Info\n")
+
+        struct_js = None
+        if struct_target and struct_target.exists():
+            try:
+                struct_js = json.loads(struct_target.read_text(encoding="utf-8"))
+            except Exception as exc:
+                log.warning(
+                    "Unable to parse copied structure JSON for %s: %s",
+                    calc.folder,
+                    exc,
+                )
+
+        formula = struct_js.get("formula", "N/A") if struct_js else "N/A"
+        n_atoms = len(struct_js.get("sites", [])) if struct_js else "N/A"
+
+        try:
+            mat = struct_js["lattice"]["matrix"] if struct_js else None
+            a, b, c = mat[0][0], mat[1][1], mat[2][2]
+            lattice_str = f"{a:.3f}, {b:.3f}, {c:.3f}"
+        except Exception:
+            lattice_str = "N/A"
+
+        lines.append("| Property | Value |")
+        lines.append("|----------|-------|")
+        lines.append(f"| Formula | {formula} |")
+        lines.append(f"| Number of Atoms | {n_atoms} |")
+        lines.append(f"| Lattice (a,b,c) | {lattice_str} |")
+        lines.append("")
+
+        page_path.write_text("\n".join(lines), encoding="utf-8")
+
+    # ----------------------------------------------------------------------
+    # SMART OVERVIEW PAGE — replaces simple table version
+    # ----------------------------------------------------------------------
+    overview = calc_dir / "index.md"
+
+    with open(overview, "w", encoding="utf-8") as fh:
+        fh.write("# Calculations Overview\n\n")
+        fh.write("This page provides an overview of all discovered FAIR calculation folders.\n\n")
+
+        for calc in calcs:
+            fh.write(f"## {calc.name}\n")
+            fh.write(f"**Folder:** `{calc.rel_to_home}`\n\n")
+
+            folder = calc.folder
+
+            # Collect all files
+            all_md = list(folder.rglob("*.md"))
+            all_html = list(folder.rglob("*.html"))
+            struct_files = [p for p in folder.rglob("structure*.json")]
+            other_json = [p for p in folder.rglob("*.json") if "structure" not in p.name]
+            graphics = [p for p in folder.rglob("*") if p.suffix.lower() in (".png", ".jpg", ".jpeg", ".svg")]
+
+            # --- Markdown & HTML ---
+            if all_md or all_html:
+                fh.write("### Summary Pages\n\n")
+                fh.write("| Path | Type | Size | Modified | Title |\n")
+                fh.write("|------|------|------|-----------|--------|\n")
+                for f in sorted(all_md + all_html):
+                    rel = f.relative_to(folder).as_posix()
+                    size = _hr_size(f.stat().st_size)
+                    mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    ftype = "Markdown" if f.suffix.lower() == ".md" else "HTML"
+                    title = _extract_title(f)
+                    fh.write(f"| `{rel}` | {ftype} | {size} | {mtime} | {title} |\n")
+                fh.write("\n")
+
+            # --- Structure JSON ---
+            if struct_files:
+                fh.write("### Structure Data Files\n\n")
+                fh.write("| Path | Size | Modified |\n")
+                fh.write("|------|------|-----------|\n")
+                for sf in sorted(struct_files):
+                    rel = sf.relative_to(folder).as_posix()
+                    size = _hr_size(sf.stat().st_size)
+                    mtime = datetime.fromtimestamp(sf.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    fh.write(f"| `{rel}` | {size} | {mtime} |\n")
+                fh.write("\n")
+
+            # --- Other JSON ---
+            if other_json:
+                fh.write("### Data Files\n\n")
+                fh.write("| Path | Size | Modified |\n")
+                fh.write("|------|------|-----------|\n")
+                for df in sorted(other_json):
+                    rel = df.relative_to(folder).as_posix()
+                    size = _hr_size(df.stat().st_size)
+                    mtime = datetime.fromtimestamp(df.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    fh.write(f"| `{rel}` | {size} | {mtime} |\n")
+                fh.write("\n")
+
+            # --- Images ---
+            if graphics:
+                fh.write("### Graphics Files\n\n")
+                fh.write("| Path | Size | Modified |\n")
+                fh.write("|------|------|-----------|\n")
+                for im in sorted(graphics):
+                    rel = im.relative_to(folder).as_posix()
+                    size = _hr_size(im.stat().st_size)
+                    mtime = datetime.fromtimestamp(im.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+                    fh.write(f"| `{rel}` | {size} | {mtime} |\n")
+                fh.write("\n")
+
+            fh.write("\n---\n\n")
+
+
+
+# ---------------------------------------------------------------------------
+# Update mkdocs.yml nav (ensure macros plugin + calculations section)
+# ---------------------------------------------------------------------------
+
+def update_mkdocs_nav(app_root: Path, calcs: List[CalculationFolder]) -> None:
+    """
+    Completely rebuild mkdocs.yml navigation:
+
+      nav:
+        - Home: index.md
+        - calculations:
+            - Overview: calculations/index.md
+            - <dynamic tree>
+
+    All previous nav entries are removed.
+    """
+    cfg_path = app_root / "mkdocs.yml"
+    if not cfg_path.exists():
+        raise RuntimeError(f"mkdocs.yml not found in {app_root}")
+
+    import yaml
+
+    raw = cfg_path.read_text(encoding="utf-8")
+    cfg = yaml.safe_load(raw) or {}
+
+    # =====================================================
+    # 1. Ensure macros plugin exists
+    # =====================================================
+    plugins = cfg.get("plugins", [])
+    new_plugins = []
+    seen_macros = False
+
+    for p in plugins:
+        if isinstance(p, str) and p == "macros":
+            new_plugins.append({"macros": {"modules": ["macros"]}})
+            seen_macros = True
+        elif isinstance(p, dict) and "macros" in p:
+            entry = p["macros"] or {}
+            mods = entry.get("modules", [])
+            if "macros" not in mods:
+                mods.append("macros")
+            entry["modules"] = mods
+            new_plugins.append({"macros": entry})
+            seen_macros = True
+        else:
+            new_plugins.append(p)
+
+    if not seen_macros:
+        new_plugins.append({"macros": {"modules": ["macros"]}})
+
+    cfg["plugins"] = new_plugins
+
+    # =====================================================
+    # 2. ERASE ENTIRE NAV → Replace with our custom nav
+    # =====================================================
+    new_nav = []
+
+    # Home page always exists
+    # Use index.md OR README.md depending on site
+    if (app_root / "docs" / "README.md").exists():
+        new_nav.append({"Home": "README.md"})
+    elif (app_root / "docs" / "index.md").exists():
+        new_nav.append({"Home": "index.md"})
+    else:
+        # Fallback — MkDocs will build but warn
+        new_nav.append({"Home": "index.md"})
+
+    # =====================================================
+    # 3. Insert dynamic calculations section
+    # =====================================================
+    if calcs:
+        dynamic_tree = build_nav_tree(calcs)
+        new_nav.append({
+            "calculations": [
+                {"Overview": "calculations/index.md"},
+                *dynamic_tree
+            ]
+        })
+
+    cfg["nav"] = new_nav
+
+    # Write yaml
+    cfg_path.write_text(
+        yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True),
+        encoding="utf-8"
+    )
+
+    log.info("[update_mkdocs_nav] Replaced mkdocs.yml nav with fresh dynamic nav.")
+
+
+# ---------------------------------------------------------------------------
+# User prompt: rebuild vs reuse
+# ---------------------------------------------------------------------------
+
+def ask_rebuild_or_reuse(app_root: Path) -> bool:
+    """
+    Ask user whether to rescan and rebuild pages or reuse existing ones.
+
+    Returns
+    -------
+    bool
+        True  -> recalculate (rescan and regenerate)
+        False -> reuse existing (no rescan)
+    """
+    print(f"\nA visualization application already exists at: {app_root}")
+    print("What would you like to do?\n")
+    print("  1) Recalculate everything (rescan home and rebuild calculation pages)")
+    print("  2) Reuse existing pages (do NOT rescan)\n")
+
     try:
-        temp_mkdocs = temp_dir / "mkdocs.yml"
-
-        # Read packaged mkdocs.yml and ensure docs_dir is set to the user-provided path.
-        content = packaged_mkdocs.read_text(encoding="utf-8")
-
-        # Create a temporary docs directory that merges user docs and packaged static assets.
-        temp_docs = temp_dir / "docs"
-        temp_docs.mkdir(parents=True, exist_ok=True)
-
-        # Copy user-provided docs into temp_docs (do not modify original)
-        try:
-            if docs_path.is_dir():
-                for src in docs_path.rglob("*"):
-                    rel = src.relative_to(docs_path)
-                    dest = temp_docs / rel
-                    if src.is_dir():
-                        dest.mkdir(parents=True, exist_ok=True)
-                    else:
-                        dest.parent.mkdir(parents=True, exist_ok=True)
-                        shutil.copy2(src, dest)
-            else:
-                # single file -> copy into temp_docs
-                shutil.copy2(docs_path, temp_docs / docs_path.name)
-        except Exception:
-            log.warning("Failed to copy user docs into temporary docs directory; continuing with limited content.")
-
-        # Copy packaged static assets (stylesheets, js, assets) into temp_docs.
-        # Some projects place these under `documentation/` and others under `documentation/docs/`.
-        # Try both locations so files like stylesheets/extra.css, js/structure.js and assets/logo.png
-        # are available to the dev server and avoid 404s.
-        candidate_roots = [packaged_docs, packaged_docs / "docs"]
-        for static_name in ("stylesheets", "js", "assets"):
-            copied = False
-            for root in candidate_roots:
-                src = root / static_name
-                if src.exists() and src.is_dir():
-                    try:
-                        shutil.copytree(src, temp_docs / static_name, dirs_exist_ok=True)
-                        log.debug(f"Copied static folder {src} -> {temp_docs / static_name}")
-                        copied = True
-                        break
-                    except Exception as e:
-                        log.debug(f"Could not copy packaged static folder {src}: {e}")
-            if not copied:
-                log.debug(f"No packaged static folder found for '{static_name}' in {candidate_roots}")
-
-        # Copy any `includes/` used by snippets (mkdocs docs/ often have an includes folder)
-        packaged_includes = packaged_docs / "docs" / "includes"
-        if packaged_includes.exists() and packaged_includes.is_dir():
-            try:
-                shutil.copytree(packaged_includes, temp_docs / "includes", dirs_exist_ok=True)
-                log.debug(f"Copied includes folder {packaged_includes} -> {temp_docs / 'includes'}")
-            except Exception as e:
-                log.debug(f"Could not copy includes folder {packaged_includes}: {e}")
-
-        # If the packaged docs include a homepage (README.md or index.md), copy
-        # that into the temporary docs root so the packaged theme overrides
-        # (which often target the site homepage) are applied. Do not overwrite
-        # any user-provided file.
-        packaged_docs_docs = packaged_docs / "docs"
-        for candidate in ("README.md", "index.md"):
-            src_home = packaged_docs_docs / candidate
-            if src_home.exists() and not (temp_docs / candidate).exists():
-                try:
-                    shutil.copy2(src_home, temp_docs / candidate)
-                    log.debug(f"Copied packaged homepage {src_home} -> {temp_docs / candidate}")
-                    # Stop after copying the first available candidate
-                    break
-                except Exception:
-                    log.debug(f"Failed to copy packaged homepage {src_home}")
-
-        # Ensure there's an index.md so the site root renders instead of 404
-        try:
-            # MkDocs expects an `index.md` at the site root when a nav entry
-            # references 'index.md'. Older projects sometimes use README.md;
-            # prefer index.md and copy README.md -> index.md when present so
-            # the nav and files stay in sync and mkdocs doesn't warn.
-            index_file = temp_docs / "index.md"
-            readme_file = temp_docs / "README.md"
-
-            # Only create a generated index.md if neither README.md nor
-            # index.md already exist. If README.md is present, prefer it as
-            # the site homepage so packaged theme overrides targeting the
-            # homepage can be applied.
-            if not index_file.exists() and not readme_file.exists():
-                # Build an index that shows the output of `tree` in a bash code block
-                all_md = sorted([p for p in temp_docs.rglob("*.md")])
-
-                def tree_lines_for_dir(root: Path) -> list[str]:
-                    lines = []
-                    def _walk(dirpath: Path, prefix: str = ''):
-                        entries = sorted([p for p in dirpath.iterdir() if not p.name.startswith('__')])
-                        dirs = [e for e in entries if e.is_dir() and any(f.suffix.lower() in ('.md', '.markdown') for f in e.rglob('*.md'))]
-                        # files not shown at folder level per user request
-                        for i, d in enumerate(dirs):
-                            last = (i == len(dirs) - 1)
-                            connector = '└── ' if last else '├── '
-                            lines.append(f"{prefix}{connector}{d.name}")
-                            _walk(d, prefix + ('    ' if last else '│   '))
-                    # include root label
-                    lines.append(str(root.name) + '/')
-                    _walk(root)
-                    return lines
-
-                total_files = len([p for p in temp_docs.rglob('*') if p.is_file()])
-                total_dirs = len([d for d in temp_docs.rglob('*') if d.is_dir() and d != temp_docs])
-                total_md = len(all_md)
-
-                tree_lines = tree_lines_for_dir(temp_docs)
-
-                with open(index_file, 'w', encoding='utf-8') as idx:
-                    idx.write("# FAIR Tool - Local Preview\n\n")
-                    idx.write("This is a local preview generated by `fair visualize`.\n\n")
-
-                    # Stats
-                    idx.write("## Summary\n\n")
-                    idx.write(f"- Total folders: **{total_dirs}**\n")
-                    idx.write(f"- Markdown pages: **{total_md}**\n\n")
-
-                    # Tree (as output of `tree` inside a bash code block)
-                    idx.write("## Pages and Folders (tree)\n\n")
-                    idx.write("```bash\n")
-                    for l in tree_lines:
-                        idx.write(l + "\n")
-                    idx.write("```\n")
-        except Exception:
-            log.debug("Failed to create temporary index.md")
-
-        # Try to replace an existing docs_dir entry in the packaged config; point to temp_docs instead.
-        if re.search(r"^\s*docs_dir\s*:\s*.+$", content, flags=re.MULTILINE):
-            content = re.sub(r"^\s*docs_dir\s*:\s*.+$", f"docs_dir: '{str(temp_docs)}'", content, flags=re.MULTILINE)
-        else:
-            # Insert at top
-            content = f"docs_dir: '{str(temp_docs)}'\n" + content
-
-        # Override site_url and directory URL handling to ensure dev server serves assets from root
-        # and doesn't prepend the packaged site_url (which was set to /fairtool/).
-        # Insert or replace site_url and use_directory_urls settings.
-        if re.search(r"^\s*site_url\s*:\s*.+$", content, flags=re.MULTILINE):
-            content = re.sub(r"^\s*site_url\s*:\s*.+$", f"site_url: 'http://127.0.0.1:{int(port)}'", content, flags=re.MULTILINE)
-        else:
-            # insert after docs_dir line
-            content = content.replace(f"docs_dir: '{str(temp_docs)}'\n", f"docs_dir: '{str(temp_docs)}'\nsite_url: 'http://127.0.0.1:{int(port)}'\n")
-
-        if re.search(r"^\s*use_directory_urls\s*:\s*.+$", content, flags=re.MULTILINE):
-            content = re.sub(r"^\s*use_directory_urls\s*:\s*.+$", "use_directory_urls: false", content, flags=re.MULTILINE)
-        else:
-            content = content.replace(f"site_url: 'http://127.0.0.1:{int(port)}'\n", f"site_url: 'http://127.0.0.1:{int(port)}'\nuse_directory_urls: false\n")
-
-        # Some mkdocs plugins referenced in the packaged mkdocs.yml may not be
-        # installed in the user's environment (for example: include_dir_to_nav).
-        # If 'include_dir_to_nav' is referenced we try to import it — if it's
-        # available we keep it so mkdocs can auto-generate directory-based nav;
-        # otherwise we remove it to avoid a hard failure.
-        if 'include_dir_to_nav' in content:
-            try:
-                import importlib
-                importlib.import_module('include_dir_to_nav')
-                log.info("'include_dir_to_nav' plugin is available in the environment; keeping it in temporary mkdocs config.")
-            except Exception:
-                log.warning("Detected 'include_dir_to_nav' plugin in packaged mkdocs.yml; plugin not importable in this environment — removing it for live serve. Consider installing the plugin if you need its behavior.")
-                # Remove lines like '- include_dir_to_nav' or '  include_dir_to_nav: ...'
-                content = re.sub(r"(?m)^[ \t]*-?[ \t]*include_dir_to_nav(?::.*)?$\n(?:^[ \t]+[^\n]*$\n)*", "", content)
-
-        # Build a nav that keeps the top-level horizontal navigation small while
-        # exposing directory names in the vertical sidebar. We create a single
-        # parent -> root grouping (so horizontal nav shows only Home + parent)
-        # and then list directories under that root. For page labels we try to
-        # extract the first H1 heading from the markdown; fall back to a
-        # humanized filename if none is found. This avoids showing raw filenames
-        # like 'vasprun' in the nav.
-
-        def humanize(stem: str) -> str:
-            stem = re.sub(r'^(fair_summarized_|fair_parsed_|fair-)', '', stem)
-            stem = stem.replace('_', ' ').replace('-', ' ')
-            return stem.strip().replace('.md','').title()
-
-        def first_h1_title(p: Path) -> str:
-            try:
-                with open(p, 'r', encoding='utf-8') as fh:
-                    for line in fh:
-                        line = line.strip()
-                        if line.startswith('#'):
-                            # remove leading hashes and whitespace
-                            title = line.lstrip('#').strip()
-                            if title.lower() in ('home', 'index'):
-                                return humanize(p.stem)
-                            return title
-            except Exception:
-                pass
-            return humanize(p.stem)
-
-        def has_markdown(dirpath: Path) -> bool:
-            for _ in dirpath.rglob('*.md'):
-                return True
-            return False
-
-        def build_nav_object_for_dir(dirpath: Path):
-            # Only directories (and their index pages) should appear in the
-            # navigation. Individual filenames are not shown. If a directory
-            # contains exactly one markdown file and no subdirectories we link
-            # directly to that page. Otherwise we ensure an `index.md` exists
-            # for the directory (creating one if necessary) and use that as the
-            # directory's entry; child directories are nested underneath.
-            pages = sorted([p for p in dirpath.glob('*.md') if p.name != 'index.md'])
-            children = sorted([d for d in dirpath.iterdir() if d.is_dir() and has_markdown(d)])
-
-            # Single-file directory -> link directly to the file
-            if len(pages) == 1 and not children:
-                return pages[0].relative_to(temp_docs).as_posix()
-
-            # Ensure an index.md exists for the directory so the nav links to
-            # the directory rather than to individual pages.
-            idx = dirpath / 'index.md'
-            if not idx.exists():
-                try:
-                    with open(idx, 'w', encoding='utf-8') as fh:
-                        title = dirpath.name.replace('_', ' ').replace('-', ' ').title()
-                        fh.write(f"# {title}\n\n")
-                        fh.write(f"This page provides an overview of the **`{dirpath.name}`** directory.\n\n")
-
-                        # Discover recursively
-                        all_md_files = [p for p in dirpath.rglob("*.md") if p.name != "index.md"]
-                        all_html_files = [p for p in dirpath.rglob("*.html") if p.name != "index.html"]
-                        structure_files = [p for p in dirpath.rglob("fair-structure.json")]
-                        other_data_files = [p for p in dirpath.rglob("*.json") if p.name != "fair-structure.json"]
-                        graphics_files = [p for p in dirpath.rglob("*") if p.suffix.lower() in ('.png', '.jpg', '.jpeg', '.svg')]
-
-
-                        # --- Markdown/HTML Summary Files ---
-                        if all_md_files or all_html_files:
-                            fh.write("## Summary Pages\n\n")
-                            fh.write("_Markdown or HTML pages found recursively._\n\n")
-                            fh.write("| Path | Type | Size | Modified | Title |\n")
-                            fh.write("|------|------|------|-----------|--------|\n")
-
-                            for f in sorted(all_md_files + all_html_files, key=lambda p: p.relative_to(dirpath).as_posix()):
-                                rel = f.relative_to(dirpath).as_posix()
-                                size = _hr_size(f.stat().st_size)
-                                mtime = datetime.fromtimestamp(f.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                                ftype = "Markdown" if f.suffix.lower() == ".md" else "HTML"
-                                title = _extract_title(f)
-                                fh.write(f"| `{rel}` | {ftype} | {size} | {mtime} | {title} |\n")
-                            fh.write("\n")
-
-                        # --- Structure Data Files ---
-                        if structure_files:
-                            fh.write("## Structure Data Files\n\n")
-                            fh.write("_FAIR structure files (`fair-structure.json`) found recursively._\n\n")
-                            fh.write("| Path | Type | Size | Modified |\n")
-                            fh.write("|------|------|------|-----------|\n")
-                            for sf in sorted(structure_files, key=lambda p: p.relative_to(dirpath).as_posix()):
-                                rel = sf.relative_to(dirpath).as_posix()
-                                size = _hr_size(sf.stat().st_size)
-                                mtime = datetime.fromtimestamp(sf.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-                                fh.write(f"| `{rel}` | Structure JSON | {size} | {mtime} |\n")
-                            fh.write("\n")
-
-                        # --- Other Data Files ---
-                        if other_data_files:
-                            fh.write("## Data Files\n\n")
-                            fh.write("_Other JSON data files found recursively (excluding structure JSON)._  \n\n")
-                            fh.write("| Path | Type | Size | Modified |\n")
-                            fh.write("|------|------|------|-----------|\n")
-
-                            for df in sorted(other_data_files, key=lambda p: p.relative_to(dirpath).as_posix()):
-                                rel = df.relative_to(dirpath).as_posix()
-                                size = _hr_size(df.stat().st_size)
-                                mtime = datetime.fromtimestamp(df.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-
-                                # Heuristic: infer type
-                                name = df.name.lower()
-                                if "vasprun" in name:
-                                    ftype = "VASP Parsed JSON"
-                                elif "summarized" in name:
-                                    ftype = "Summary JSON"
-                                elif "metadata" in name:
-                                    ftype = "Metadata JSON"                                    
-                                else:
-                                    ftype = "Generic JSON"
-
-                                fh.write(f"| `{rel}` | {ftype} | {size} | {mtime} |\n")
-                            fh.write("\n")
-
-                        # --- Graphics / Visualization Files ---
-                        if graphics_files:
-                            fh.write("## Graphics Files\n\n")
-                            fh.write("_Visualization and figure files found recursively._\n\n")
-                            fh.write("| Path | Type | Size | Modified |\n")
-                            fh.write("|------|------|------|-----------|\n")
-                            for img in sorted(graphics_files, key=lambda p: p.relative_to(dirpath).as_posix()):
-                                rel = img.relative_to(dirpath).as_posix()
-                                size = _hr_size(img.stat().st_size)
-                                mtime = datetime.fromtimestamp(img.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
-
-                                ext = img.suffix.lower().replace('.', '').upper()
-                                ftype = f"{ext} Image"
-
-                                fh.write(f"| `{rel}` | {ftype} | {size} | {mtime} |\n")
-                            fh.write("\n")
-
-
-                        if not (all_md_files or all_html_files or structure_files or other_data_files):
-                            fh.write("_This folder currently has no recognized Markdown, HTML, or data files._\n\n")
-
-                        fh.write("\n---\n")
-                        fh.write("*(AI generated summary coming soon)*\n")
-
-                except Exception:
-                    log.debug(f"Could not create smart index.md for {dirpath}", exc_info=True)
-
-
-
-
-            # Build nav entries: the first entry for a directory is an explicit
-            # mapping label -> index page so MkDocs will use the provided label
-            # rather than extracting the H1 from the page (which can be 'Home').
-            entries = []
-            if dirpath != temp_docs:
-                # Use a neutral 'Overview' label so the sidebar shows a clear
-                # label under the directory without duplicating the directory
-                # name itself.
-                entries.append({'Overview': idx.relative_to(temp_docs).as_posix()})
-
-            for d in children:
-                entries.append({d.name: build_nav_object_for_dir(d)})
-
-            return entries
-
-        # Pick a sensible top-level home file: prefer index.md, fall back to README.md
-        if (temp_docs / 'index.md').exists():
-            home_entry = 'index.md'
-        elif (temp_docs / 'README.md').exists():
-            home_entry = 'README.md'
-        else:
-            home_entry = 'index.md'
-
-        final_nav = [{'Home': home_entry}]
-        docs_label = docs_path.name
-
-        # Build docs nav object. We do NOT include individual file names in the
-        # navigation; only folder names (which link to their index pages) and
-        # single-file folders linking directly to the file.
-        docs_nav_obj = []
-        for d in sorted([d for d in temp_docs.iterdir() if d.is_dir() and has_markdown(d)]):
-            if d.name in ("assets", "stylesheets", "js", "includes", "material"):
-                continue
-            docs_nav_obj.append({d.name: build_nav_object_for_dir(d)})
-
-        final_nav.append({docs_label: docs_nav_obj})
-
-        # Inject nav into packaged config safely
-        try:
-            import yaml
-            try:
-                cfg = yaml.safe_load(content)
-            except Exception:
-                cfg = None
-
-            if cfg is not None:
-                cfg['docs_dir'] = str(temp_docs)
-                cfg['site_url'] = f"http://127.0.0.1:{int(port)}"
-                cfg['use_directory_urls'] = False
-
-                plugins = cfg.get('plugins')
-                if isinstance(plugins, list):
-                    new_plugins = []
-                    for p in plugins:
-                        if p == 'include_dir_to_nav':
-                            continue
-                        if isinstance(p, dict) and 'include_dir_to_nav' in p:
-                            continue
-                        new_plugins.append(p)
-                    cfg['plugins'] = new_plugins
-
-                    # Ensure theme custom_dir points to the material theme root
-                    # (the packaged layout uses material/overrides as a subfolder
-                    #  containing the Jinja2 overrides). MkDocs expects
-                    #  custom_dir to point to the theme root directory; the
-                    #  overrides are located under <custom_dir>/overrides.
-                    theme = cfg.get('theme') or {}
-                    if isinstance(theme, dict):
-                        cd = theme.get('custom_dir')
-                        if isinstance(cd, str) and cd.endswith('overrides'):
-                            # move up one level so MkDocs sees custom_dir as 'material'
-                            cfg['theme']['custom_dir'] = cd.rsplit('/', 1)[0]
-
-                    cfg['nav'] = final_nav
-                content = yaml.safe_dump(cfg, sort_keys=False, allow_unicode=True, width=10000)
-            else:
-                nav_yaml = yaml.dump(final_nav, allow_unicode=True, sort_keys=False, width=10000)
-                lines = content.splitlines(True)
-                nav_start = None
-                for i, line in enumerate(lines):
-                    if re.match(r'^\s*nav\s*:', line):
-                        nav_start = i
-                        break
-
-                if nav_start is not None:
-                    end = None
-                    for j in range(nav_start + 1, len(lines)):
-                        if re.match(r'^[^ \t].+?:', lines[j]):
-                            end = j
-                            break
-
-                    new_nav_block = ['nav:\n', nav_yaml]
-                    if end is None:
-                        new_lines = lines[:nav_start] + new_nav_block
-                    else:
-                        new_lines = lines[:nav_start] + new_nav_block + lines[end:]
-                    content = ''.join(new_lines)
-                else:
-                    content = content + '\nnav:\n' + nav_yaml
-                    # If the packaged config used a 'custom_dir' that pointed
-                    # directly at an 'overrides' subfolder (e.g. 'material/overrides')
-                    # many projects expect the theme root to be the parent
-                    # directory. When we copy the entire `material` folder into
-                    # the temp site, adjust the textual config so MkDocs will
-                    # find the overrides under <custom_dir>/overrides.
-                    try:
-                        content = re.sub(r"(?m)^(\s*custom_dir\s*:\s*)(.+?/)?overrides\s*$", r"\1material", content)
-                    except Exception:
-                        pass
-        except Exception:
-            log.debug("Failed to auto-generate per-directory nav block; continuing without it.")
-
-        # Final textual normalization: ensure custom_dir does not point
-        # directly at an 'overrides' subfolder (e.g. 'material/overrides').
-        # MkDocs expects custom_dir to be the theme root; the Jinja2
-        # overrides live under <custom_dir>/overrides. Normalize to
-        # 'material' so our copied theme folder is discovered.
-        try:
-            content = re.sub(r"(?m)^(\s*custom_dir\s*:\s*)(.+?/)?overrides\s*$", r"\1material", content)
-        except Exception:
-            pass
-
-        temp_mkdocs.write_text(content, encoding="utf-8")
-
-        # Copy macros.py next to temp mkdocs.yml if it exists in packaged docs
-        if packaged_macros.exists():
-            try:
-                shutil.copy(packaged_macros, temp_dir / "macros.py")
-            except Exception:
-                log.debug("Failed to copy macros.py to temporary dir", exc_info=True)
-        else:
-            log.debug("No packaged macros.py found; continuing without copying macros.")
-
-        # Also copy any overrides or theme folders that might be referenced relatively
-        # (e.g., material customizations in `documentation/material`)
-        packaged_material = packaged_docs / "material"
-        if packaged_material.exists() and packaged_material.is_dir():
-            dst_material = temp_dir / "material"
-            try:
-                shutil.copytree(packaged_material, dst_material, dirs_exist_ok=True)
-            except Exception:
-                # Don't fail if copying fails; warn instead
-                log.warning("Failed to copy packaged material overrides; theme customization may be missing.")
-
-        # If build=True, run mkdocs build using the temporary mkdocs config.
-        # The caller can optionally provide `build_dir` to control the
-        # output location; by default the site is written under the temp dir
-        # as '<temp_dir>/site'. We do not change cleanup semantics here: the
-        # temporary directory is removed at the end of this function unless
-        # `dry_run` is True.
-        if build:
-            # Resolve build target to an absolute path. If the caller provided
-            # a relative path (e.g. 'site'), resolve it against the current
-            # working directory so MkDocs doesn't treat it relative to the
-            # temporary mkdocs.yml location and accidentally write into the
-            # temp dir.
-            if build_dir is not None:
-                bd = Path(build_dir)
-                if bd.is_absolute():
-                    target = bd
-                else:
-                    target = Path.cwd() / bd
-            else:
-                target = (temp_dir / 'site')
-
-            target = target.resolve()
-            cmd = [sys.executable, '-m', 'mkdocs', 'build', '-f', str(temp_mkdocs), '-d', str(target)]
-            log.info(f"Running mkdocs build -> {target}")
-            try:
-                proc = subprocess.run(cmd, check=False)
-                if proc.returncode != 0:
-                    log.error(f"mkdocs build exited with return code {proc.returncode}")
-                    # Do not raise SystemExit here; allow caller to inspect temp dir
-                else:
-                    log.info(f"mkdocs build completed; site available at: {target}")
-            except FileNotFoundError:
-                log.error("`mkdocs` command not found. Is mkdocs installed in the active Python environment? Try `pip install mkdocs mkdocs-material mkdocs-macros-plugin`.")
-            except Exception as e:
-                log.error(f"Error running mkdocs build: {e}", exc_info=True)
-            # If build was requested and this is not a dry_run, do not start
-            # the interactive dev server afterwards. Return so callers (CI
-            # scripts or users) can continue without hanging on a serve.
-            if not dry_run:
-                return
-
-        # If dry_run is requested, return temp_dir so caller can inspect files
-        if dry_run:
-            log.info(f"Wrote temporary mkdocs config to: {temp_mkdocs}")
-            log.info(f"Temporary docs tree at: {temp_docs}")
-            return temp_dir
-
-        # Build the mkdocs serve command
-        cmd = [
-            sys.executable, "-m", "mkdocs", "serve",
-            "-f", str(temp_mkdocs),
-            "--dev-addr", f"127.0.0.1:{int(port)}"
-        ]
-
-        log.info(f"Starting mkdocs server on http://127.0.0.1:{port}")
-        log.info(f"Using packaged mkdocs config from {packaged_mkdocs} with docs_dir={docs_path}")
-        log.info("Press Ctrl+C to stop the server.")
-
-        # Launch mkdocs serve. This will block until the server is stopped.
-        try:
-            process = subprocess.run(cmd, check=False)
-            if process.returncode != 0:
-                log.error(f"mkdocs exited with return code {process.returncode}")
-                raise SystemExit(process.returncode)
-        except FileNotFoundError:
-            log.error("`mkdocs` command not found. Is mkdocs installed in the active Python environment? Try `pip install mkdocs mkdocs-material mkdocs-macros-plugin`.")
-            raise SystemExit(1)
-        except KeyboardInterrupt:
-            log.info("mkdocs server stopped by user.")
-    finally:
-        # Clean up the temporary directory unless dry_run requested
-        try:
-            if dry_run:
-                log.info(f"dry_run requested; leaving temporary directory in place: {temp_dir}")
-            else:
-                shutil.rmtree(temp_dir)
-        except Exception:
-            pass
-
+        choice = input("Select 1 or 2 : ").strip()
+    except EOFError:
+        # Non-interactive environment: default to rebuild
+        return True
+
+    if choice == "2":
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# Public entry point called by CLI
+# ---------------------------------------------------------------------------
+
+def run_visualizer(root_scan: Optional[Path] = None, port: int = 8000) -> None:
+    """
+    Main entry point for the visualization app.
+
+    Workflow
+    --------
+    1. Ensure persistent app root at ~/.fairtool/visualize_app.
+    2. If it doesn't exist: create and initialize from packaged docs.
+    3. If it exists: ask whether to rebuild (rescan) or reuse.
+    4. If rebuilding:
+         - Scan root_scan (default: HOME) for calculation folders.
+         - Regenerate calculation pages.
+         - Update MkDocs navigation.
+    5. Start `mkdocs serve` from the app root and block until stopped.
+    """
+    app_root = APP_ROOT
+
+    if not app_root.exists():
+        initialize_app_root(app_root)
+        rebuild = True
+    else:
+        rebuild = ask_rebuild_or_reuse(app_root)
+
+    if rebuild:
+        if root_scan is None:
+            root_scan = Path.home()
+        root_scan = root_scan.expanduser().resolve()
+
+        log.info("[run_visualizer] Scanning root: %s", root_scan)
+        calcs = discover_calculations(root_scan)
+        if not calcs:
+            log.warning("No valid calculation folders found under: %s", root_scan)
+
+        write_calculation_pages(app_root, calcs)
+        update_mkdocs_nav(app_root, calcs)
+
+    mkdocs_cfg = app_root / "mkdocs.yml"
+    log.info("[run_visualizer] mkdocs.yml path: %s", mkdocs_cfg)
+    log.info(
+        "[run_visualizer] Checking if macros.py exists: %s",
+        (app_root / "macros.py").exists(),
+    )
+    log.info("[run_visualizer] Running mkdocs serve with cwd=%s", app_root)
+
+    cmd = [
+        sys.executable,
+        "-m",
+        "mkdocs",
+        "serve",
+        "-f",
+        str(mkdocs_cfg),
+        "--dev-addr",
+        f"127.0.0.1:{port}",
+    ]
+
+    log.info("Launching MkDocs server at http://127.0.0.1:%d", port)
+    log.info("Press Ctrl+C to stop the server.")
+    try:
+        subprocess.run(cmd, cwd=str(app_root), check=False)
+    except KeyboardInterrupt:
+        log.info("Visualization server stopped by user.")
+
+
+def visualize_cli(port: int = 8000) -> None:
+    """
+    Thin wrapper for the Typer CLI.
+
+    The `fair visualize` command should call this function.
+    """
+    run_visualizer(root_scan=None, port=port)
