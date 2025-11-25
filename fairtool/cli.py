@@ -438,20 +438,46 @@ def export(
 def visualize(
     port: Annotated[int, typer.Option(
         "--port", "-p",
-        help="Port number for the localhost visualization server."
+        help="Port for visualization server."
     )] = 8000,
+
+    serve: Annotated[bool, typer.Option(
+        "--serve/--no-serve",
+        help="Start mkdocs dev server after generating pages."
+    )] = True,
+
+    build_only: Annotated[bool, typer.Option(
+        "--build",
+        help="Build static site instead of serving."
+    )] = False,
 ):
     """
-    Launch the FAIR visualization application.
+    Launch the FAIR visualization interface.
 
-    - Uses ~/.fairtool/visualize_app as the persistent MkDocs project.
-    - On first run: initializes the app and builds calculation pages.
-    - On later runs: asks whether to recalculate or reuse existing pages.
+    This will:
+    - Ensure ~/.fairtool/visualize_app exists.
+    - Ask whether to rebuild or reuse calculation pages.
+    - Optionally build static HTML (--build)
+    - Optionally launch a local server (--serve)
     """
-    from . import visualize as visualize_module
-
+    log.info("Starting FAIR visualization interface...")
     try:
+        # Generate pages / initialize app
         visualize_module.visualize_cli(port=port)
+
+        # If user requested a static build:
+        if build_only:
+            subprocess.run(
+                [sys.executable, "-m", "mkdocs", "build", "-f", str(APP_ROOT / "mkdocs.yml")],
+                cwd=str(APP_ROOT),
+                check=False,
+            )
+            return
+
+        # If serving is enabled
+        if serve:
+            pass  # visualize_cli already runs mkdocs serve
+
     except Exception as e:
         log.error(f"Visualization failed: {e}", exc_info=True)
         raise typer.Exit(code=1)
